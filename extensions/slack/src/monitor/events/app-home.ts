@@ -2,6 +2,7 @@ import type { AgentConfig } from "../../../../../src/config/types.agents.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import type { SlackMonitorContext } from "../context.js";
+import { resolveUserTimezone } from "../../../../../src/agents/date-time.js";
 import { VERSION } from "../../../../../src/version.js";
 import {
   clearPublishInFlight,
@@ -170,6 +171,7 @@ export function registerSlackAppHomeEvents(params: { ctx: SlackMonitorContext })
             model,
             channelIds: resolveChannelIds(ctx),
             botUserId: ctx.botUserId,
+            ownerTimezone: resolveUserTimezone(ctx.cfg.agents?.defaults?.userTimezone),
           };
 
           const view = buildDefaultHomeView(viewParams);
