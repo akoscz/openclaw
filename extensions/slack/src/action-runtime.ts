@@ -606,7 +606,7 @@ export async function handleSlackAction(
       throw new Error("Slack Home Tab updates are disabled.");
     }
     const userId = readStringParam(params, "userId", { required: true });
-    await slackActionRuntime.resetSlackHomeTab(userId);
+    await slackActionRuntime.resetSlackHomeTab(userId, writeOpts ?? {});
     return jsonResult({
       ok: true,
       message: "Custom Home Tab cleared; default will restore on next visit.",
