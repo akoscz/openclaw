@@ -1,6 +1,7 @@
 // Slack plugin module implements events behavior.
 import type { ResolvedSlackAccount } from "../accounts.js";
 import type { SlackMonitorContext } from "./context.js";
+import { registerSlackAppHomeEvents } from "./events/app-home.js";
 import { registerSlackAssistantEvents } from "./events/assistant.js";
 import { registerSlackChannelEvents } from "./events/channels.js";
 import { registerSlackHomeEvents } from "./events/home.js";
@@ -29,4 +30,5 @@ export function registerSlackMonitorEvents(params: {
   registerSlackHomeEvents({ ctx: params.ctx, trackEvent: params.trackEvent });
   registerSlackInteractionEvents({ ctx: params.ctx, trackEvent: params.trackEvent });
   registerSlackAssistantEvents({ ctx: params.ctx, trackEvent: params.trackEvent });
+  registerSlackAppHomeEvents({ ctx: params.ctx });
 }
