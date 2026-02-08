@@ -2,6 +2,25 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { readBooleanParam } from "openclaw/plugin-sdk/boolean-param";
 import { isSingleUseReplyToMode } from "openclaw/plugin-sdk/reply-reference";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { resolveSlackAccount } from "./accounts.js";
+import {
+  deleteSlackMessage,
+  downloadSlackFile,
+  editSlackMessage,
+  getSlackMemberInfo,
+  listSlackEmojis,
+  listSlackPins,
+  listSlackReactions,
+  pinSlackMessage,
+  publishSlackHomeTab,
+  reactSlackMessage,
+  readSlackMessages,
+  removeOwnSlackReactions,
+  removeSlackReaction,
+  resetSlackHomeTab,
+  sendSlackMessage,
+  unpinSlackMessage,
+} from "./actions.js";
 import { parseSlackBlocksInput } from "./blocks-input.js";
 import {
   createActionGate,
@@ -526,6 +545,35 @@ export async function handleSlackAction(
       }
     }
     return jsonResult({ ok: true, emojis: result });
+  }
+
+  if (action === "updateHomeTab") {
+    if (!isActionEnabled("homeTab")) {
+      throw new Error("Slack Home Tab updates are disabled.");
+    }
+    const userId = readStringParam(params, "userId", { required: true });
+    const blocks = params.blocks;
+    if (!Array.isArray(blocks)) {
+      throw new Error("blocks (array) is required for updateHomeTab.");
+    }
+    if (writeOpts) {
+      await publishSlackHomeTab(userId, blocks as Record<string, unknown>[], writeOpts);
+    } else {
+      await publishSlackHomeTab(userId, blocks as Record<string, unknown>[]);
+    }
+    return jsonResult({ ok: true });
+  }
+
+  if (action === "resetHomeTab") {
+    if (!isActionEnabled("homeTab")) {
+      throw new Error("Slack Home Tab updates are disabled.");
+    }
+    const userId = readStringParam(params, "userId", { required: true });
+    resetSlackHomeTab(userId);
+    return jsonResult({
+      ok: true,
+      message: "Custom Home Tab cleared; default will restore on next visit.",
+    });
   }
 
   throw new Error(`Unknown action: ${action}`);
