@@ -38,6 +38,7 @@ import { applyMergePatch } from "./merge-patch.js";
 import { normalizeConfigPaths } from "./normalize-paths.js";
 import { resolveConfigPath, resolveDefaultConfigCandidates, resolveStateDir } from "./paths.js";
 import { applyConfigOverrides } from "./runtime-overrides.js";
+import { GcpSecretsProviderError } from "./secrets/gcp.js";
 import { detectUnresolvedSecretRefs } from "./secrets/index.js";
 import {
   resolveConfigSecrets,
@@ -669,7 +670,9 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         secretsResolved = await resolveConfigSecrets(substituted, deps.env);
       } catch (err) {
         const message =
-          err instanceof MissingSecretError || err instanceof SecretsProviderError
+          err instanceof MissingSecretError ||
+          err instanceof SecretsProviderError ||
+          err instanceof GcpSecretsProviderError
             ? err.message
             : `Secret resolution failed: ${String(err)}`;
         return {
