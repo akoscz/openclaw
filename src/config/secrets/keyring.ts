@@ -236,7 +236,7 @@ function createLinuxProvider(account: string): SecretsProvider {
           throw new Error("empty");
         }
         return value;
-      } catch (err: unknown) {
+      } catch {
         // secret-tool exits non-zero when a key isn't found. execFileAsync wraps
         // this as an Error, but the message may just be stderr (often empty) rather
         // than including "exit code". Treat any execFile rejection after our own
