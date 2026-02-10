@@ -26,18 +26,18 @@
 import type { SecretsProvider } from "./provider.js";
 import type { SecretsConfig } from "./types.js";
 import { createEnvSecretsProvider } from "./env.js";
+import { MissingSecretError, SecretsProviderError } from "./errors.js";
 import { createGcpSecretsProvider } from "./gcp.js";
 import { createKeyringSecretsProvider } from "./keyring.js";
 import { defaultResolveAll } from "./provider.js";
+
+export { MissingSecretError, SecretsProviderError } from "./errors.js";
 
 /** Pattern for valid secret names: alphanumeric, hyphens, underscores, dots. */
 const SECRET_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 
 /** Config keys to skip during secret resolution (avoids circular deps). */
 const DEFAULT_SKIP_KEYS: ReadonlySet<string> = new Set(["secrets"]);
-
-import { MissingSecretError, SecretsProviderError } from "./errors.js";
-export { MissingSecretError, SecretsProviderError } from "./errors.js";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
