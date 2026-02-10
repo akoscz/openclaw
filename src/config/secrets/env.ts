@@ -6,6 +6,7 @@
  */
 
 import type { SecretsProvider } from "./provider.js";
+import { MissingSecretError } from "./errors.js";
 
 /**
  * Creates an environment variable secrets provider.
@@ -17,7 +18,7 @@ export function createEnvSecretsProvider(env: NodeJS.ProcessEnv = process.env): 
     async resolve(secretName: string): Promise<string> {
       const value = env[secretName];
       if (value === undefined || value === "") {
-        throw new Error(`Secret "${secretName}" not found in environment variables`);
+        throw new MissingSecretError(secretName, "env");
       }
       return value;
     },

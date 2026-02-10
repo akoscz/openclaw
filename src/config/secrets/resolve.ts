@@ -36,22 +36,8 @@ const SECRET_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 /** Config keys to skip during secret resolution (avoids circular deps). */
 const DEFAULT_SKIP_KEYS: ReadonlySet<string> = new Set(["secrets"]);
 
-export class MissingSecretError extends Error {
-  constructor(
-    public readonly secretName: string,
-    public readonly configPath: string,
-  ) {
-    super(`Missing secret "${secretName}" referenced at config path: ${configPath}`);
-    this.name = "MissingSecretError";
-  }
-}
-
-export class SecretsProviderError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SecretsProviderError";
-  }
-}
+import { MissingSecretError, SecretsProviderError } from "./errors.js";
+export { MissingSecretError, SecretsProviderError } from "./errors.js";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
