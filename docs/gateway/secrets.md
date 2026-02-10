@@ -67,6 +67,8 @@ Full `secrets` config block:
 ```json5
 {
   secrets: {
+    // Supported: gcp, env, keyring
+    // Planned (not yet implemented): aws, 1password, doppler, bitwarden, vault
     provider: "gcp" | "env" | "keyring" | "aws" | "1password" | "doppler" | "bitwarden" | "vault",
     gcp: { project: "..." },          // required when provider is "gcp"
     aws: { region: "..." },
