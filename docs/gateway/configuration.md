@@ -475,27 +475,27 @@ Rules:
   Configure external secret resolution for config values using `$secret{NAME}`.
   This helps keep API keys and tokens out of plaintext `openclaw.json`.
 
-  ```json5
-  {
-    secrets: {
-      provider: "gcp", // gcp | env | keyring | aws | 1password | doppler | bitwarden | vault
-      gcp: { project: "my-project" },
+```json5
+{
+  secrets: {
+    provider: "gcp", // gcp | env | keyring | aws | 1password | doppler | bitwarden | vault
+    gcp: { project: "my-project" },
+  },
+  gateway: {
+    auth: {
+      token: "$secret{OPENCLAW_GATEWAY_TOKEN}",
     },
-    gateway: {
-      auth: {
-        token: "$secret{OPENCLAW_GATEWAY_TOKEN}",
-      },
-    },
-  }
-  ```
+  },
+}
+```
 
-  Notes:
+Notes:
 
-  - `$secret{...}` resolves after `${ENV_VAR}` substitution.
-  - `$$secret{...}` escapes to a literal string.
-  - Without a `secrets` block, behavior is unchanged.
+- `$secret{...}` resolves after `${ENV_VAR}` substitution.
+- `$$secret{...}` escapes to a literal string.
+- Without a `secrets` block, behavior is unchanged.
 
-  See [Secrets Manager](/gateway/secrets/) for provider setup, syntax details, and troubleshooting.
+See [Secrets Manager](/gateway/secrets/) for provider setup, syntax details, and troubleshooting.
 </Accordion>
 
 See [Environment](/help/environment) for full precedence and sources.
