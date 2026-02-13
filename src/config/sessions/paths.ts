@@ -60,7 +60,13 @@ function resolvePathWithinSessionsDir(sessionsDir: string, candidate: string): s
   const resolvedCandidate = path.resolve(resolvedBase, trimmed);
   const relative = path.relative(resolvedBase, resolvedCandidate);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Session file path must be within sessions directory");
+    // Absolute paths stored by prior versions may legitimately reside inside
+    // the sessions directory. Accept them if they share the base prefix;
+    // reject everything else as a path-traversal attempt.
+    const basePrefix = resolvedBase.endsWith(path.sep) ? resolvedBase : resolvedBase + path.sep;
+    if (!(resolvedCandidate === resolvedBase || resolvedCandidate.startsWith(basePrefix))) {
+      throw new Error("Session file path must be within sessions directory");
+    }
   }
   return resolvedCandidate;
 }
