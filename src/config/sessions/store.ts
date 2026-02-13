@@ -301,13 +301,14 @@ export function resolveMaintenanceConfig(): ResolvedSessionMaintenanceConfig {
 export function pruneStaleEntries(
   store: Record<string, SessionEntry>,
   overrideMaxAgeMs?: number,
-  opts: { log?: boolean } = {},
+  opts: { log?: boolean; onPruned?: (key: string, entry: SessionEntry) => void } = {},
 ): number {
   const maxAgeMs = overrideMaxAgeMs ?? resolveMaintenanceConfig().pruneAfterMs;
   const cutoffMs = Date.now() - maxAgeMs;
   let pruned = 0;
   for (const [key, entry] of Object.entries(store)) {
     if (entry?.updatedAt != null && entry.updatedAt < cutoffMs) {
+      opts.onPruned?.(key, entry);
       delete store[key];
       pruned++;
     }
@@ -471,6 +472,8 @@ type SaveSessionStoreOptions = {
   activeSessionKey?: string;
   /** Optional callback for warn-only maintenance. */
   onWarn?: (warning: SessionMaintenanceWarning) => void | Promise<void>;
+  /** Called for each session entry removed during pruning. */
+  onSessionPruned?: (key: string, entry: SessionEntry) => void;
 };
 
 async function saveSessionStoreUnlocked(
@@ -510,7 +513,12 @@ async function saveSessionStoreUnlocked(
       }
     } else {
       // Prune stale entries and cap total count before serializing.
-      pruneStaleEntries(store, maintenance.pruneAfterMs);
+      // Fire session_end hooks for pruned entries so plugins get lifecycle notification.
+      pruneStaleEntries(store, maintenance.pruneAfterMs, {
+        onPruned: (key, entry) => {
+          opts?.onSessionPruned?.(key, entry);
+        },
+      });
       capEntryCount(store, maintenance.maxEntries);
 
       // Rotate the on-disk file if it exceeds the size threshold.
