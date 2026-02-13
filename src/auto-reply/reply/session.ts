@@ -286,6 +286,7 @@ export async function initSessionState(params: {
   sessionEntry = {
     ...baseEntry,
     sessionId,
+    createdAt: isNewSession ? Date.now() : (baseEntry?.createdAt ?? Date.now()),
     updatedAt: Date.now(),
     systemSent,
     abortedLastRun,
@@ -430,11 +431,15 @@ export async function initSessionState(params: {
     if (previousSessionEntry?.sessionId && previousSessionEntry.sessionId !== effectiveSessionId) {
       if (hookRunner.hasHooks("session_end")) {
         const prevMessageCount = countTranscriptMessages(previousSessionEntry.sessionFile);
+        const prevDurationMs = previousSessionEntry.createdAt
+          ? Date.now() - previousSessionEntry.createdAt
+          : undefined;
         void hookRunner
           .runSessionEnd(
             {
               sessionId: previousSessionEntry.sessionId,
               messageCount: prevMessageCount,
+              durationMs: prevDurationMs,
             },
             {
               sessionId: previousSessionEntry.sessionId,

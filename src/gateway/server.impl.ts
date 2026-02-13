@@ -779,12 +779,14 @@ export async function startGatewayServer(
               if (!entry?.sessionId) {
                 continue;
               }
+              const shutdownDurationMs = entry.createdAt ? Date.now() - entry.createdAt : undefined;
               endPromises.push(
                 hookRunner
                   .runSessionEnd(
                     {
                       sessionId: entry.sessionId,
                       messageCount: countTranscriptMessages(entry.sessionFile),
+                      durationMs: shutdownDurationMs,
                     },
                     {
                       sessionId: entry.sessionId,
