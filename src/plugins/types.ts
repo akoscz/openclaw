@@ -308,6 +308,8 @@ export type PluginHookName =
   | "after_tool_call"
   | "tool_result_persist"
   | "session_start"
+  | "session_resume"
+  | "session_suspend"
   | "session_end"
   | "gateway_start"
   | "gateway_stop";
@@ -470,7 +472,22 @@ export type PluginHookSessionStartEvent = {
   resumedFrom?: string;
 };
 
-// session_end hook
+// session_resume hook — existing session reactivated after gateway restart
+export type PluginHookSessionResumeEvent = {
+  sessionId: string;
+  /** Milliseconds the session was suspended (time between gateway stop and resume). */
+  suspendedForMs?: number;
+};
+
+// session_suspend hook — gateway shutting down, session will persist
+export type PluginHookSessionSuspendEvent = {
+  sessionId: string;
+  messageCount: number;
+  durationMs?: number;
+  reason?: string;
+};
+
+// session_end hook — session truly over, won't come back
 export type PluginHookSessionEndEvent = {
   sessionId: string;
   messageCount: number;
@@ -537,6 +554,14 @@ export type PluginHookHandlerMap = {
   ) => PluginHookToolResultPersistResult | void;
   session_start: (
     event: PluginHookSessionStartEvent,
+    ctx: PluginHookSessionContext,
+  ) => Promise<void> | void;
+  session_resume: (
+    event: PluginHookSessionResumeEvent,
+    ctx: PluginHookSessionContext,
+  ) => Promise<void> | void;
+  session_suspend: (
+    event: PluginHookSessionSuspendEvent,
     ctx: PluginHookSessionContext,
   ) => Promise<void> | void;
   session_end: (

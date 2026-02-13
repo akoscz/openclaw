@@ -29,7 +29,9 @@ import type {
   PluginHookRegistration,
   PluginHookSessionContext,
   PluginHookSessionEndEvent,
+  PluginHookSessionResumeEvent,
   PluginHookSessionStartEvent,
+  PluginHookSessionSuspendEvent,
   PluginHookToolContext,
   PluginHookToolResultPersistContext,
   PluginHookToolResultPersistEvent,
@@ -59,6 +61,8 @@ export type {
   PluginHookToolResultPersistResult,
   PluginHookSessionContext,
   PluginHookSessionStartEvent,
+  PluginHookSessionResumeEvent,
+  PluginHookSessionSuspendEvent,
   PluginHookSessionEndEvent,
   PluginHookGatewayContext,
   PluginHookGatewayStartEvent,
@@ -401,7 +405,33 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
   }
 
   /**
+   * Run session_resume hook.
+   * Fired when an existing session is reactivated after a gateway restart.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionResume(
+    event: PluginHookSessionResumeEvent,
+    ctx: PluginHookSessionContext,
+  ): Promise<void> {
+    return runVoidHook("session_resume", event, ctx);
+  }
+
+  /**
+   * Run session_suspend hook.
+   * Fired for all active sessions when the gateway is shutting down.
+   * Sessions may be resumed after restart.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionSuspend(
+    event: PluginHookSessionSuspendEvent,
+    ctx: PluginHookSessionContext,
+  ): Promise<void> {
+    return runVoidHook("session_suspend", event, ctx);
+  }
+
+  /**
    * Run session_end hook.
+   * Fired when a session is truly over (replaced by /new, idle timeout, or pruned).
    * Runs in parallel (fire-and-forget).
    */
   async function runSessionEnd(
@@ -472,6 +502,8 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     runToolResultPersist,
     // Session hooks
     runSessionStart,
+    runSessionResume,
+    runSessionSuspend,
     runSessionEnd,
     // Gateway hooks
     runGatewayStart,
