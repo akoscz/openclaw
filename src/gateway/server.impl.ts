@@ -1,5 +1,9 @@
 import path from "node:path";
-import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import {
+  resolveAgentWorkspaceDir,
+  resolveDefaultAgentId,
+  resolveSessionAgentId,
+} from "../agents/agent-scope.js";
 import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js";
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
@@ -18,6 +22,7 @@ import {
   writeConfigFile,
 } from "../config/config.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
+import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
 import { clearAgentRunContext, onAgentEvent } from "../infra/agent-events.js";
 import {
   ensureControlUiAssetsBuilt,
@@ -32,6 +37,7 @@ import { startHeartbeatRunner, type HeartbeatRunner } from "../infra/heartbeat-r
 import { getMachineDisplayName } from "../infra/machine-name.js";
 import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { setGatewaySigusr1RestartPolicy, setPreRestartDeferralCheck } from "../infra/restart.js";
+import { countTranscriptMessages } from "../infra/session-message-count.js";
 import {
   primeRemoteSkillsCache,
   refreshRemoteBinsForConnectedNodes,
@@ -749,11 +755,53 @@ export async function startGatewayServer(
   return {
     close: async (opts) => {
       // Run gateway_stop plugin hook before shutdown
-      await runGlobalGatewayStopSafely({
-        event: { reason: opts?.reason ?? "gateway stopping" },
-        ctx: { port },
-        onError: (err) => log.warn(`gateway_stop hook failed: ${String(err)}`),
-      });
+      {
+        const hookRunner = getGlobalHookRunner();
+        if (hookRunner?.hasHooks("gateway_stop")) {
+          try {
+            await hookRunner.runGatewayStop(
+              { reason: opts?.reason ?? "gateway stopping" },
+              { port },
+            );
+          } catch (err) {
+            log.warn(`gateway_stop hook failed: ${String(err)}`);
+          }
+        }
+
+        // Fire session_end for all active sessions on shutdown
+        if (hookRunner?.hasHooks("session_end")) {
+          try {
+            const cfg = loadConfig();
+            const storePath = resolveStorePath(cfg);
+            const store = loadSessionStore(storePath);
+            const endPromises: Promise<void>[] = [];
+            for (const [sessionKey, entry] of Object.entries(store)) {
+              if (!entry?.sessionId) {
+                continue;
+              }
+              endPromises.push(
+                hookRunner
+                  .runSessionEnd(
+                    {
+                      sessionId: entry.sessionId,
+                      messageCount: countTranscriptMessages(entry.sessionFile),
+                    },
+                    {
+                      sessionId: entry.sessionId,
+                      agentId: resolveSessionAgentId({ sessionKey, config: cfg }),
+                    },
+                  )
+                  .catch((err) => {
+                    log.warn(`session_end hook failed for ${entry.sessionId}: ${String(err)}`);
+                  }),
+              );
+            }
+            await Promise.all(endPromises);
+          } catch (err) {
+            log.warn(`session_end hooks on shutdown failed: ${String(err)}`);
+          }
+        }
+      }
       if (diagnosticsEnabled) {
         stopDiagnosticHeartbeat();
       }
