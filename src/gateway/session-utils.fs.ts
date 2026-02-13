@@ -123,7 +123,6 @@ export async function findSessionFiles(stateDir: string): Promise<string[]> {
 
   return files;
 }
-}
 
 export function readSessionMessages(
   sessionId: string,
