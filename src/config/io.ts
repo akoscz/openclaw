@@ -758,6 +758,9 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
     // with a new snapshot based on the (possibly mutated) live env.
     const savedEnvSnapshot = envSnapshotForRestore;
     const snapshot = await readConfigFileSnapshot();
+    if (savedEnvSnapshot) {
+      envSnapshotForRestore = savedEnvSnapshot;
+    }
     let envRefMap: Map<string, string> | null = null;
     let changedPaths: Set<string> | null = null;
     if (savedEnvSnapshot) {
