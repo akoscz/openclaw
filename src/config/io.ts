@@ -680,6 +680,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
           exists: true,
           raw,
           parsed: parsedRes.parsed,
+          resolved: coerceConfig(substituted),
           valid: false,
           config: coerceConfig(substituted),
           hash,
