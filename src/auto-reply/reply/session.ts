@@ -391,6 +391,26 @@ export async function initSessionState(params: {
           entry: sessionEntry,
           warning,
         }),
+      onSessionPruned: (prunedKey, prunedEntry) => {
+        const runner = getGlobalHookRunner();
+        if (runner?.hasHooks("session_end")) {
+          const msgCount = countTranscriptMessages(prunedEntry.sessionFile);
+          const duration = prunedEntry.createdAt ? Date.now() - prunedEntry.createdAt : undefined;
+          void runner
+            .runSessionEnd(
+              {
+                sessionId: prunedEntry.sessionId,
+                messageCount: msgCount,
+                durationMs: duration,
+              },
+              {
+                sessionId: prunedEntry.sessionId,
+                agentId: resolveSessionAgentId({ sessionKey: prunedKey, config: cfg }),
+              },
+            )
+            .catch(() => {});
+        }
+      },
     },
   );
 
