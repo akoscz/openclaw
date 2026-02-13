@@ -28,6 +28,7 @@ import {
 } from "../../config/sessions.js";
 import { archiveSessionTranscripts } from "../../gateway/session-utils.fs.js";
 import { deliverSessionMaintenanceWarning } from "../../infra/session-maintenance-warning.js";
+import { countTranscriptMessages } from "../../infra/session-message-count.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { normalizeMainKey } from "../../routing/session-key.js";
 import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.js";
@@ -417,11 +418,12 @@ export async function initSessionState(params: {
     // If replacing an existing session, fire session_end for the old one
     if (previousSessionEntry?.sessionId && previousSessionEntry.sessionId !== effectiveSessionId) {
       if (hookRunner.hasHooks("session_end")) {
+        const prevMessageCount = countTranscriptMessages(previousSessionEntry.sessionFile);
         void hookRunner
           .runSessionEnd(
             {
               sessionId: previousSessionEntry.sessionId,
-              messageCount: 0,
+              messageCount: prevMessageCount,
             },
             {
               sessionId: previousSessionEntry.sessionId,
