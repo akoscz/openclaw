@@ -571,8 +571,7 @@ export function resolveGatewaySessionStoreTarget(params: {
  * For example, if storePath is `~/.openclaw/agents/orchestrator/sessions/sessions.json`,
  * this returns `~/.openclaw/agents`.
  */
-export function resolveSessionsBaseDir(_cfg: OpenClawConfig): string {
-  // Use a dummy session key to get a sample storePath, then navigate up to agents/
+export function resolveSessionsBaseDir(): string {
   return resolveStateDir();
 }
 
@@ -581,7 +580,7 @@ export function resolveSessionsBaseDir(_cfg: OpenClawConfig): string {
  * Returns an array of candidate directories where archived transcripts might be found.
  */
 export function resolveArchivedSessionCandidateDirs(cfg: OpenClawConfig): string[] {
-  const stateDir = resolveSessionsBaseDir(cfg);
+  const stateDir = resolveSessionsBaseDir();
   const candidateDirs: string[] = [];
 
   // Scan agents/ directory for all agent session dirs
@@ -972,8 +971,8 @@ export function listSessionsFromStore(params: {
         }
       }
 
-      // Use streaming message counter to avoid loading entire file
-      messageCount = countMessagesInTranscriptFile(info.filePath);
+      // Skip message counting during listing — only compute when explicitly needed (e.g., preview)
+      // messageCount remains undefined
 
       finalSessions.push({
         key: archiveKey,
