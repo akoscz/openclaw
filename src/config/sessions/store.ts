@@ -300,7 +300,7 @@ export function resolveMaintenanceConfig(): ResolvedSessionMaintenanceConfig {
   let pruneRules = maintenance?.pruneRules;
   try {
     const cronConfig = loadConfig().cron;
-    if (cronConfig?.sessionRetention !== undefined && !pruneRules?.cronRun) {
+    if (cronConfig?.sessionRetention !== undefined && pruneRules?.cronRun === undefined) {
       pruneRules = { ...pruneRules, cronRun: cronConfig.sessionRetention };
     }
   } catch {
