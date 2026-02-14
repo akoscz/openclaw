@@ -1,7 +1,7 @@
 import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
 import type { CronJob } from "../types.js";
 import type { CronEvent, CronServiceState } from "./state.js";
-import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
+// DEFAULT_AGENT_ID import removed — was only used by sweepCronRunSessions (now unified)
 import { resolveCronDeliveryPlan } from "../delivery.js";
 // sweepCronRunSessions removed — cron run pruning now handled by unified session maintenance.
 import {
