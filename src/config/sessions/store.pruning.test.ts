@@ -559,4 +559,45 @@ describe("Integration: saveSessionStore with pruning", () => {
       rotateBytes: 10_485_760,
     });
   });
+
+  it("resolveMaintenanceConfig: explicit cronRun=false wins over deprecated sessionRetention", async () => {
+    // When new config has cronRun: false AND deprecated sessionRetention is set,
+    // the explicit false should NOT be overwritten by sessionRetention.
+    mockLoadConfig.mockReturnValue({
+      session: {
+        maintenance: {
+          pruneRules: {
+            cronRun: false,
+          },
+        },
+      },
+      cron: {
+        sessionRetention: true,
+      },
+    });
+
+    const { resolveMaintenanceConfig } = await import("./store.js");
+    const config = resolveMaintenanceConfig();
+
+    expect(config.pruneRules?.cronRun).toBe(false);
+  });
+
+  it("resolveMaintenanceConfig: undefined cronRun uses deprecated sessionRetention", async () => {
+    // When cronRun is not set (undefined), sessionRetention should be used for backward compat.
+    mockLoadConfig.mockReturnValue({
+      session: {
+        maintenance: {
+          pruneRules: {},
+        },
+      },
+      cron: {
+        sessionRetention: true,
+      },
+    });
+
+    const { resolveMaintenanceConfig } = await import("./store.js");
+    const config = resolveMaintenanceConfig();
+
+    expect(config.pruneRules?.cronRun).toBe(true);
+  });
 });
