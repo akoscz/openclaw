@@ -116,6 +116,23 @@ export type SessionMaintenanceConfig = {
   maxEntries?: number;
   /** Rotate sessions.json when it exceeds this size (e.g. "10mb"). Default: 10mb. */
   rotateBytes?: number | string;
+  /**
+   * Per-session-type TTL overrides.  Each value is a duration string (e.g. "1h"),
+   * a number of milliseconds, or `false` to exempt that type from pruning entirely.
+   * When unset for a type, the global `pruneAfter` applies.
+   */
+  pruneRules?: SessionPruneRules;
+};
+
+export type SessionPruneRules = {
+  /** TTL for sub-agent sessions. e.g. "1h" */
+  subagent?: string | number | false;
+  /** TTL for cron run sessions. e.g. "2h".  Replaces cron.sessionRetention. */
+  cronRun?: string | number | false;
+  /** TTL for thread/topic sessions. e.g. "48h" */
+  thread?: string | number | false;
+  /** TTL for channel sessions. `false` = never prune. */
+  channel?: string | number | false;
 };
 
 export type LoggingConfig = {

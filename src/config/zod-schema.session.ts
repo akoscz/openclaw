@@ -101,6 +101,15 @@ export const SessionSchema = z
         pruneDays: z.number().int().positive().optional(),
         maxEntries: z.number().int().positive().optional(),
         rotateBytes: z.union([z.string(), z.number()]).optional(),
+        pruneRules: z
+          .object({
+            subagent: z.union([z.string(), z.number(), z.literal(false)]).optional(),
+            cronRun: z.union([z.string(), z.number(), z.literal(false)]).optional(),
+            thread: z.union([z.string(), z.number(), z.literal(false)]).optional(),
+            channel: z.union([z.string(), z.number(), z.literal(false)]).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .superRefine((val, ctx) => {
