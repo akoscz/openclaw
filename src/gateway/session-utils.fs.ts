@@ -219,7 +219,7 @@ export type ArchiveFileReason = "bak" | "reset" | "deleted";
 export type ArchivedTranscriptInfo = {
   filePath: string;
   sessionId: string;
-  reason: string;
+  reason: ArchiveFileReason;
   archivedAt: string;
   fileSize: number;
 };
@@ -229,7 +229,7 @@ export type ArchivedTranscriptInfo = {
  * Pattern: `sess-<id>.jsonl.<reason>.<iso-timestamp>` or with topic suffix.
  * The ISO timestamp uses `-` instead of `:` (from `toISOString().replaceAll(":", "-")`).
  */
-const ARCHIVED_FILENAME_RE = /^(sess-[^.]+)\.jsonl\.(deleted|reset|bak)\.([\dT._+-]+Z?)$/;
+export const ARCHIVED_FILENAME_RE = /^(sess-[^.]+)\.jsonl\.(deleted|reset|bak)\.([\dT._+-]+Z?)$/;
 
 /**
  * Scan a sessions directory for archived transcript files.
@@ -268,6 +268,17 @@ export function scanArchivedTranscripts(sessionsDir: string): ArchivedTranscript
     results.push({ filePath, sessionId, reason, archivedAt, fileSize });
   }
   return results;
+}
+
+/**
+ * Validate that a filename is safe for archived transcript resolution.
+ * Returns true if the filename contains no path separators and matches the archived filename pattern.
+ */
+export function isValidArchivedFileName(fileName: string): boolean {
+  if (fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) {
+    return false;
+  }
+  return ARCHIVED_FILENAME_RE.test(fileName);
 }
 
 export function archiveFileOnDisk(filePath: string, reason: ArchiveFileReason): string {
@@ -478,6 +489,119 @@ function extractTextFromContent(content: TranscriptMessage["content"]): string |
       if (trimmed) {
         return trimmed;
       }
+    }
+  }
+  return null;
+}
+
+/**
+ * Count messages in a transcript file using streaming approach to avoid loading entire file.
+ * Returns count of user and assistant messages.
+ */
+export function countMessagesInTranscriptFile(filePath: string): number {
+  let fd: number | null = null;
+  let count = 0;
+  try {
+    fd = fs.openSync(filePath, "r");
+    const bufferSize = 64 * 1024; // 64KB buffer
+    const buf = Buffer.alloc(bufferSize);
+    let leftover = "";
+    let bytesRead = 0;
+
+    do {
+      bytesRead = fs.readSync(fd, buf, 0, bufferSize, null);
+      if (bytesRead === 0) {
+        break;
+      }
+
+      const chunk = leftover + buf.toString("utf-8", 0, bytesRead);
+      const lines = chunk.split("\n");
+
+      // Keep the last incomplete line for next iteration
+      leftover = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) {
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(line);
+          const role = parsed?.role ?? parsed?.message?.role;
+          if (role === "user" || role === "assistant") {
+            count++;
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+    } while (bytesRead > 0);
+
+    // Process any remaining leftover
+    if (leftover.trim()) {
+      try {
+        const parsed = JSON.parse(leftover);
+        const role = parsed?.role ?? parsed?.message?.role;
+        if (role === "user" || role === "assistant") {
+          count++;
+        }
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // file read error
+  } finally {
+    if (fd !== null) {
+      fs.closeSync(fd);
+    }
+  }
+  return count;
+}
+
+/**
+ * Read first user message directly from a transcript file path.
+ * This is a low-level utility for archived transcripts that don't have an active session.
+ */
+export function readFirstUserMessageFromFile(
+  filePath: string,
+  opts?: { includeInterSession?: boolean },
+): string | null {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(8192);
+    const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+    if (bytesRead === 0) {
+      return null;
+    }
+    const chunk = buf.toString("utf-8", 0, bytesRead);
+    const lines = chunk.split(/\r?\n/).slice(0, MAX_LINES_TO_SCAN);
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(line);
+        const msg = parsed?.message as TranscriptMessage | undefined;
+        if (msg?.role === "user") {
+          if (opts?.includeInterSession !== true && hasInterSessionUserProvenance(msg)) {
+            continue;
+          }
+          const text = extractTextFromContent(msg.content);
+          if (text) {
+            return text;
+          }
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+  } catch {
+    // file read error
+  } finally {
+    if (fd !== null) {
+      fs.closeSync(fd);
     }
   }
   return null;
