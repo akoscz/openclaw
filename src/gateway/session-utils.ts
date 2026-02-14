@@ -33,7 +33,10 @@ import {
 } from "../routing/session-key.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
-import { readSessionTitleFieldsFromTranscript } from "./session-utils.fs.js";
+import {
+  readSessionTitleFieldsFromTranscript,
+  scanArchivedTranscripts,
+} from "./session-utils.fs.js";
 
 export {
   archiveFileOnDisk,
@@ -42,10 +45,13 @@ export {
   readFirstUserMessageFromTranscript,
   readLastMessagePreviewFromTranscript,
   readSessionTitleFieldsFromTranscript,
+  readPreviewItemsFromFile,
   readSessionPreviewItemsFromTranscript,
   readSessionMessages,
   resolveSessionTranscriptCandidates,
+  scanArchivedTranscripts,
 } from "./session-utils.fs.js";
+export type { ArchivedTranscriptInfo } from "./session-utils.fs.js";
 export type {
   GatewayAgentRow,
   GatewaySessionRow,
@@ -835,6 +841,114 @@ export function listSessionsFromStore(params: {
     }
     return { ...rest, derivedTitle, lastMessagePreview } satisfies GatewaySessionRow;
   });
+
+  // Append archived sessions when requested
+  if (opts.includeArchived === true) {
+    const sessionsDir = path.dirname(storePath);
+    const archived = scanArchivedTranscripts(sessionsDir);
+
+    for (const info of archived) {
+      // Build a key prefixed with "archived:" so consumers can distinguish
+      const archiveKey = `archived:${path.basename(info.filePath)}`;
+
+      // Apply search filter if present
+      if (search) {
+        const fields = [info.sessionId, archiveKey, info.reason];
+        if (!fields.some((f) => f.toLowerCase().includes(search))) {
+          continue;
+        }
+      }
+
+      let derivedTitle: string | undefined;
+      let messageCount: number | undefined;
+
+      if (includeDerivedTitles) {
+        // Read first user message directly from the archived file
+        try {
+          const fd = fs.openSync(info.filePath, "r");
+          try {
+            const buf = Buffer.alloc(8192);
+            const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+            if (bytesRead > 0) {
+              const chunk = buf.toString("utf-8", 0, bytesRead);
+              const lines = chunk.split(/\r?\n/).slice(0, 10);
+              for (const line of lines) {
+                if (!line.trim()) {
+                  continue;
+                }
+                try {
+                  const parsed = JSON.parse(line);
+                  const msg = parsed?.message;
+                  if (msg?.role === "user") {
+                    const text =
+                      typeof msg.content === "string"
+                        ? msg.content.trim()
+                        : Array.isArray(msg.content)
+                          ? msg.content
+                              .filter(
+                                (p: { type?: string; text?: string }) =>
+                                  p?.type === "text" && p?.text,
+                              )
+                              .map((p: { text: string }) => p.text)
+                              .join(" ")
+                              .trim()
+                          : null;
+                    if (text) {
+                      derivedTitle =
+                        text.length > DERIVED_TITLE_MAX_LEN
+                          ? `${text.slice(0, DERIVED_TITLE_MAX_LEN - 1)}…`
+                          : text;
+                      break;
+                    }
+                  }
+                } catch {
+                  // skip
+                }
+              }
+            }
+          } finally {
+            fs.closeSync(fd);
+          }
+        } catch {
+          // skip
+        }
+      }
+
+      // Count messages for archived entries
+      try {
+        const content = fs.readFileSync(info.filePath, "utf-8");
+        let count = 0;
+        for (const line of content.split("\n")) {
+          if (!line.trim()) {
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(line);
+            const role = parsed?.role ?? parsed?.message?.role;
+            if (role === "user" || role === "assistant") {
+              count++;
+            }
+          } catch {
+            // skip
+          }
+        }
+        messageCount = count;
+      } catch {
+        // skip
+      }
+
+      finalSessions.push({
+        key: archiveKey,
+        kind: "direct",
+        status: "archived",
+        archivedAt: info.archivedAt,
+        messageCount,
+        updatedAt: info.archivedAt ? new Date(info.archivedAt).getTime() : null,
+        derivedTitle,
+        sessionId: info.sessionId,
+      });
+    }
+  }
 
   return {
     ts: now,
