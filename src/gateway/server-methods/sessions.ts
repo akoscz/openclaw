@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { abortEmbeddedPiRun, waitForEmbeddedPiRunEnd } from "../../agents/pi-embedded.js";
 import { stopSubagentsForRequester } from "../../auto-reply/reply/abort.js";
@@ -32,6 +33,7 @@ import {
   loadCombinedSessionStoreForGateway,
   loadSessionEntry,
   pruneLegacyStoreKeys,
+  readPreviewItemsFromFile,
   readSessionPreviewItemsFromTranscript,
   resolveGatewaySessionStoreTarget,
   resolveSessionModelRef,
@@ -202,6 +204,56 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const previews: SessionsPreviewEntry[] = [];
 
     for (const key of keys) {
+      // Handle archived session keys (e.g., "archived:sess-abc.jsonl.deleted.2026-01-01T00-00-00.000Z")
+      if (key.startsWith("archived:")) {
+        const fileName = key.slice("archived:".length);
+        // Resolve against all agent session directories
+        const stateDir = path.dirname(
+          path.dirname(
+            path.dirname(
+              resolveGatewaySessionStoreTarget({
+                cfg,
+                key: "agent:orchestrator:dummy",
+                scanLegacyKeys: false,
+              }).storePath,
+            ),
+          ),
+        );
+        // Try common session directories
+        const candidateDirs: string[] = [];
+        const agentsDir = path.join(stateDir, "agents");
+        if (fs.existsSync(agentsDir)) {
+          try {
+            for (const d of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+              if (d.isDirectory()) {
+                candidateDirs.push(path.join(agentsDir, d.name, "sessions"));
+              }
+            }
+          } catch {
+            /* skip */
+          }
+        }
+        candidateDirs.push(path.join(stateDir, "sessions"));
+
+        let found = false;
+        for (const dir of candidateDirs) {
+          const filePath = path.join(dir, fileName);
+          if (fs.existsSync(filePath)) {
+            const items = readPreviewItemsFromFile(filePath, limit, maxChars);
+            previews.push({
+              key,
+              status: items.length > 0 ? "ok" : "empty",
+              items,
+            });
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          previews.push({ key, status: "missing", items: [] });
+        }
+        continue;
+      }
       try {
         const storeTarget = resolveGatewaySessionStoreTarget({ cfg, key, scanLegacyKeys: false });
         const store =

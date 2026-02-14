@@ -160,6 +160,60 @@ export function resolveSessionTranscriptCandidates(
 
 export type ArchiveFileReason = "bak" | "reset" | "deleted";
 
+export type ArchivedTranscriptInfo = {
+  filePath: string;
+  sessionId: string;
+  reason: string;
+  archivedAt: string;
+  fileSize: number;
+};
+
+/**
+ * Regex to match archived transcript filenames.
+ * Pattern: `sess-<id>.jsonl.<reason>.<iso-timestamp>` or with topic suffix.
+ * The ISO timestamp uses `-` instead of `:` (from `toISOString().replaceAll(":", "-")`).
+ */
+const ARCHIVED_FILENAME_RE = /^(sess-[^.]+)\.jsonl\.(deleted|reset|bak)\.([\dT._+-]+Z?)$/;
+
+/**
+ * Scan a sessions directory for archived transcript files.
+ * Returns metadata parsed from filenames — does not read file contents.
+ */
+export function scanArchivedTranscripts(sessionsDir: string): ArchivedTranscriptInfo[] {
+  if (!fs.existsSync(sessionsDir)) {
+    return [];
+  }
+  const results: ArchivedTranscriptInfo[] = [];
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(sessionsDir);
+  } catch {
+    return [];
+  }
+  for (const name of entries) {
+    const match = ARCHIVED_FILENAME_RE.exec(name);
+    if (!match) {
+      continue;
+    }
+    const [, sessionId, reason, rawTimestamp] = match;
+    const filePath = path.join(sessionsDir, name);
+    let fileSize = 0;
+    try {
+      const stat = fs.statSync(filePath);
+      fileSize = stat.size;
+    } catch {
+      continue; // skip files we can't stat
+    }
+    // Restore colons from the escaped timestamp (hyphens after T are time separators)
+    const archivedAt = rawTimestamp.replace(
+      /(\d{4}-\d{2}-\d{2}T)(\d{2})-(\d{2})-(\d{2})/,
+      "$1$2:$3:$4",
+    );
+    results.push({ filePath, sessionId, reason, archivedAt, fileSize });
+  }
+  return results;
+}
+
 export function archiveFileOnDisk(filePath: string, reason: ArchiveFileReason): string {
   const ts = new Date().toISOString().replaceAll(":", "-");
   const archived = `${filePath}.${reason}.${ts}`;
@@ -703,6 +757,29 @@ function readRecentMessagesFromTranscript(
       fs.closeSync(fd);
     }
   }
+}
+
+/**
+ * Read preview items from a specific file path (used for archived transcripts).
+ */
+export function readPreviewItemsFromFile(
+  filePath: string,
+  maxItems: number,
+  maxChars: number,
+): SessionPreviewItem[] {
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+  const boundedItems = Math.max(1, Math.min(maxItems, 50));
+  const boundedChars = Math.max(20, Math.min(maxChars, 2000));
+
+  for (const readSize of PREVIEW_READ_SIZES) {
+    const messages = readRecentMessagesFromTranscript(filePath, boundedItems, readSize);
+    if (messages.length > 0 || readSize === PREVIEW_READ_SIZES[PREVIEW_READ_SIZES.length - 1]) {
+      return buildPreviewItems(messages, boundedItems, boundedChars);
+    }
+  }
+  return [];
 }
 
 export function readSessionPreviewItemsFromTranscript(
