@@ -3,10 +3,10 @@ packages:
   - ui
   - packages/*
   - extensions/*
+  - "!extensions/matrix" # Excluded: transitive dep on deprecated `request@2.88.2` (SSRF moderate CVE). We don't use Matrix. See memory/2026-02-14.md.
 
 onlyBuiltDependencies:
   - "@lydell/node-pty"
-  - "@matrix-org/matrix-sdk-crypto-nodejs"
   - "@napi-rs/canvas"
   - "@whiskeysockets/baileys"
   - authenticate-pam
