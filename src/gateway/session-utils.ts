@@ -29,6 +29,10 @@ import {
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
 import {
+  ARCHIVED_FILENAME_RE,
+  countMessagesInTranscriptFile,
+  isValidArchivedFileName,
+  readFirstUserMessageFromFile,
   readSessionTitleFieldsFromTranscript,
   scanArchivedTranscripts,
 } from "./session-utils.fs.js";
@@ -40,9 +44,13 @@ import type {
 } from "./session-utils.types.js";
 
 export {
+  ARCHIVED_FILENAME_RE,
   archiveFileOnDisk,
   archiveSessionTranscripts,
   capArrayByJsonBytes,
+  countMessagesInTranscriptFile,
+  isValidArchivedFileName,
+  readFirstUserMessageFromFile,
   readFirstUserMessageFromTranscript,
   readLastMessagePreviewFromTranscript,
   readSessionTitleFieldsFromTranscript,
@@ -556,6 +564,53 @@ export function resolveGatewaySessionStoreTarget(params: {
   };
 }
 
+/**
+ * Resolve the base state directory containing agent session directories.
+ * This is the parent of the "agents/" directory where per-agent session stores live.
+ *
+ * For example, if storePath is `~/.openclaw/agents/orchestrator/sessions/sessions.json`,
+ * this returns `~/.openclaw/agents`.
+ */
+export function resolveSessionsBaseDir(cfg: OpenClawConfig): string {
+  // Use a dummy session key to get a sample storePath, then navigate up to agents/
+  const target = resolveGatewaySessionStoreTarget({
+    cfg,
+    key: "agent:orchestrator:dummy",
+    scanLegacyKeys: false,
+  });
+  // storePath is typically: ~/.openclaw/agents/{agentId}/sessions/sessions.json
+  // Go up 3 levels: sessions.json -> sessions/ -> {agentId}/ -> agents/
+  return path.dirname(path.dirname(path.dirname(target.storePath)));
+}
+
+/**
+ * Discover session directories across all agents.
+ * Returns an array of candidate directories where archived transcripts might be found.
+ */
+export function resolveArchivedSessionCandidateDirs(cfg: OpenClawConfig): string[] {
+  const stateDir = resolveSessionsBaseDir(cfg);
+  const candidateDirs: string[] = [];
+
+  // Scan agents/ directory for all agent session dirs
+  const agentsDir = path.join(stateDir, "agents");
+  if (fs.existsSync(agentsDir)) {
+    try {
+      for (const d of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+        if (d.isDirectory()) {
+          candidateDirs.push(path.join(agentsDir, d.name, "sessions"));
+        }
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
+  // Also include legacy sessions/ directory at state root
+  candidateDirs.push(path.join(stateDir, "sessions"));
+
+  return candidateDirs;
+}
+
 // Merge with existing entry based on latest timestamp to ensure data consistency and avoid overwriting with less complete data.
 function mergeSessionEntryIntoCombined(params: {
   cfg: OpenClawConfig;
@@ -876,10 +931,23 @@ export function listSessionsFromStore(params: {
 
   // Append archived sessions when requested
   if (opts.includeArchived === true) {
-    const sessionsDir = path.dirname(storePath);
-    const archived = scanArchivedTranscripts(sessionsDir);
+    // Scan all agent session directories, not just the current one
+    const candidateDirs = resolveArchivedSessionCandidateDirs(cfg);
+    const archivedSet = new Map<string, typeof info>();
 
-    for (const info of archived) {
+    // Collect archived transcripts from all candidate directories, deduplicating by filename
+    for (const sessionsDir of candidateDirs) {
+      const archived = scanArchivedTranscripts(sessionsDir);
+      for (const info of archived) {
+        const basename = path.basename(info.filePath);
+        // Keep the first occurrence (arbitrary but consistent)
+        if (!archivedSet.has(basename)) {
+          archivedSet.set(basename, info);
+        }
+      }
+    }
+
+    for (const info of archivedSet.values()) {
       // Build a key prefixed with "archived:" so consumers can distinguish
       const archiveKey = `archived:${path.basename(info.filePath)}`;
 
@@ -895,79 +963,18 @@ export function listSessionsFromStore(params: {
       let messageCount: number | undefined;
 
       if (includeDerivedTitles) {
-        // Read first user message directly from the archived file
-        try {
-          const fd = fs.openSync(info.filePath, "r");
-          try {
-            const buf = Buffer.alloc(8192);
-            const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
-            if (bytesRead > 0) {
-              const chunk = buf.toString("utf-8", 0, bytesRead);
-              const lines = chunk.split(/\r?\n/).slice(0, 10);
-              for (const line of lines) {
-                if (!line.trim()) {
-                  continue;
-                }
-                try {
-                  const parsed = JSON.parse(line);
-                  const msg = parsed?.message;
-                  if (msg?.role === "user") {
-                    const text =
-                      typeof msg.content === "string"
-                        ? msg.content.trim()
-                        : Array.isArray(msg.content)
-                          ? msg.content
-                              .filter(
-                                (p: { type?: string; text?: string }) =>
-                                  p?.type === "text" && p?.text,
-                              )
-                              .map((p: { text: string }) => p.text)
-                              .join(" ")
-                              .trim()
-                          : null;
-                    if (text) {
-                      derivedTitle =
-                        text.length > DERIVED_TITLE_MAX_LEN
-                          ? `${text.slice(0, DERIVED_TITLE_MAX_LEN - 1)}…`
-                          : text;
-                      break;
-                    }
-                  }
-                } catch {
-                  // skip
-                }
-              }
-            }
-          } finally {
-            fs.closeSync(fd);
-          }
-        } catch {
-          // skip
+        // Use utility to read first user message from archived file
+        const text = readFirstUserMessageFromFile(info.filePath);
+        if (text) {
+          derivedTitle =
+            text.length > DERIVED_TITLE_MAX_LEN
+              ? `${text.slice(0, DERIVED_TITLE_MAX_LEN - 1)}…`
+              : text;
         }
       }
 
-      // Count messages for archived entries
-      try {
-        const content = fs.readFileSync(info.filePath, "utf-8");
-        let count = 0;
-        for (const line of content.split("\n")) {
-          if (!line.trim()) {
-            continue;
-          }
-          try {
-            const parsed = JSON.parse(line);
-            const role = parsed?.role ?? parsed?.message?.role;
-            if (role === "user" || role === "assistant") {
-              count++;
-            }
-          } catch {
-            // skip
-          }
-        }
-        messageCount = count;
-      } catch {
-        // skip
-      }
+      // Use streaming message counter to avoid loading entire file
+      messageCount = countMessagesInTranscriptFile(info.filePath);
 
       finalSessions.push({
         key: archiveKey,

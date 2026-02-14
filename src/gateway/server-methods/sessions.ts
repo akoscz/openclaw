@@ -31,10 +31,12 @@ import {
   archiveSessionTranscripts,
   listSessionsFromStore,
   loadCombinedSessionStoreForGateway,
+  isValidArchivedFileName,
   loadSessionEntry,
   pruneLegacyStoreKeys,
   readPreviewItemsFromFile,
   readSessionPreviewItemsFromTranscript,
+  resolveArchivedSessionCandidateDirs,
   resolveGatewaySessionStoreTarget,
   resolveSessionModelRef,
   resolveSessionTranscriptCandidates,
@@ -207,33 +209,15 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       // Handle archived session keys (e.g., "archived:sess-abc.jsonl.deleted.2026-01-01T00-00-00.000Z")
       if (key.startsWith("archived:")) {
         const fileName = key.slice("archived:".length);
-        // Resolve against all agent session directories
-        const stateDir = path.dirname(
-          path.dirname(
-            path.dirname(
-              resolveGatewaySessionStoreTarget({
-                cfg,
-                key: "agent:orchestrator:dummy",
-                scanLegacyKeys: false,
-              }).storePath,
-            ),
-          ),
-        );
-        // Try common session directories
-        const candidateDirs: string[] = [];
-        const agentsDir = path.join(stateDir, "agents");
-        if (fs.existsSync(agentsDir)) {
-          try {
-            for (const d of fs.readdirSync(agentsDir, { withFileTypes: true })) {
-              if (d.isDirectory()) {
-                candidateDirs.push(path.join(agentsDir, d.name, "sessions"));
-              }
-            }
-          } catch {
-            /* skip */
-          }
+
+        // Validate fileName to prevent path traversal
+        if (!isValidArchivedFileName(fileName)) {
+          previews.push({ key, status: "missing", items: [] });
+          continue;
         }
-        candidateDirs.push(path.join(stateDir, "sessions"));
+
+        // Use shared utility to discover candidate directories
+        const candidateDirs = resolveArchivedSessionCandidateDirs(cfg);
 
         let found = false;
         for (const dir of candidateDirs) {
