@@ -70,7 +70,8 @@ describe("listSessionsFromStore includeArchived", () => {
     expect(archived).toHaveLength(1);
     expect(archived[0].status).toBe("archived");
     expect(archived[0].archivedAt).toBe("2026-02-01T10:00:00.000Z");
-    expect(archived[0].messageCount).toBe(2);
+    // messageCount is opt-in (not computed during listing to avoid N file reads)
+    expect(archived[0].messageCount).toBeUndefined();
     expect(archived[0].key).toContain("archived:");
   });
 

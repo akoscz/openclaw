@@ -578,7 +578,7 @@ export function resolveSessionsBaseDir(): string {
  * Discover session directories across all agents.
  * Returns an array of candidate directories where archived transcripts might be found.
  */
-export function resolveArchivedSessionCandidateDirs(cfg: OpenClawConfig): string[] {
+export function resolveArchivedSessionCandidateDirs(): string[] {
   const stateDir = resolveSessionsBaseDir();
   const candidateDirs: string[] = [];
 
@@ -892,7 +892,7 @@ export function listSessionsFromStore(params: {
   // Append archived sessions when requested
   if (opts.includeArchived === true) {
     // Scan all agent session directories, not just the current one
-    const candidateDirs = resolveArchivedSessionCandidateDirs(cfg);
+    const candidateDirs = resolveArchivedSessionCandidateDirs();
     // Also include the directory containing the current store file (ensures we find
     // archived transcripts even when storePath doesn't match the resolved state dir)
     const storeDir = path.dirname(storePath);
@@ -926,7 +926,6 @@ export function listSessionsFromStore(params: {
       }
 
       let derivedTitle: string | undefined;
-      let messageCount: number | undefined;
 
       if (includeDerivedTitles) {
         // Use utility to read first user message from archived file
@@ -940,14 +939,12 @@ export function listSessionsFromStore(params: {
       }
 
       // Skip message counting during listing — only compute when explicitly needed (e.g., preview)
-      // messageCount remains undefined
-
       finalSessions.push({
         key: archiveKey,
         kind: "direct",
         status: "archived",
         archivedAt: info.archivedAt,
-        messageCount,
+        messageCount: undefined,
         updatedAt: info.archivedAt ? new Date(info.archivedAt).getTime() : null,
         derivedTitle,
         sessionId: info.sessionId,
