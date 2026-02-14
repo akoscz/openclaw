@@ -1,6 +1,7 @@
 import { loadConfig } from "../config/config.js";
 import { callGateway } from "../gateway/call.js";
 import { onAgentEvent } from "../infra/agent-events.js";
+import { defaultRuntime } from "../runtime.js";
 import { type DeliveryContext, normalizeDeliveryContext } from "../utils/delivery-context.js";
 import { runSubagentAnnounceFlow, type SubagentRunOutcome } from "./subagent-announce.js";
 import {
@@ -25,6 +26,8 @@ export type SubagentRunRecord = {
   archiveAtMs?: number;
   cleanupCompletedAt?: number;
   cleanupHandled?: boolean;
+  announceAttempts?: number;
+  lastAnnounceError?: string;
 };
 
 const subagentRuns = new Map<string, SubagentRunRecord>();
@@ -76,9 +79,14 @@ function resumeSubagentRun(runId: string) {
       endedAt: entry.endedAt,
       label: entry.label,
       outcome: entry.outcome,
-    }).then((didAnnounce) => {
-      finalizeSubagentCleanup(runId, entry.cleanup, didAnnounce);
-    });
+    }).then(
+      (didAnnounce) => {
+        finalizeSubagentCleanup(runId, entry.cleanup, didAnnounce);
+      },
+      (err) => {
+        finalizeSubagentCleanup(runId, entry.cleanup, false, String(err));
+      },
+    );
     resumedRuns.add(runId);
     return;
   }
@@ -239,21 +247,46 @@ function ensureListener() {
       endedAt: entry.endedAt,
       label: entry.label,
       outcome: entry.outcome,
-    }).then((didAnnounce) => {
-      finalizeSubagentCleanup(evt.runId, entry.cleanup, didAnnounce);
-    });
+    }).then(
+      (didAnnounce) => {
+        finalizeSubagentCleanup(evt.runId, entry.cleanup, didAnnounce);
+      },
+      (err) => {
+        finalizeSubagentCleanup(evt.runId, entry.cleanup, false, String(err));
+      },
+    );
   });
 }
 
-function finalizeSubagentCleanup(runId: string, cleanup: "delete" | "keep", didAnnounce: boolean) {
+const MAX_ANNOUNCE_ATTEMPTS = 3;
+
+function finalizeSubagentCleanup(
+  runId: string,
+  cleanup: "delete" | "keep",
+  didAnnounce: boolean,
+  error?: string,
+) {
   const entry = subagentRuns.get(runId);
   if (!entry) {
     return;
   }
   if (!didAnnounce) {
-    // Allow retry on the next wake if announce was deferred or failed.
+    entry.announceAttempts = (entry.announceAttempts ?? 0) + 1;
+    if (error) {
+      entry.lastAnnounceError = error;
+    }
+    if (entry.announceAttempts >= MAX_ANNOUNCE_ATTEMPTS) {
+      defaultRuntime.log?.(
+        `[subagent-announce] ✗ giving up after ${entry.announceAttempts} attempts for ${entry.label || entry.childSessionKey}: ${entry.lastAnnounceError ?? "unknown"}`,
+      );
+      entry.cleanupCompletedAt = Date.now();
+      persistSubagentRuns();
+      return;
+    }
+    // Allow retry on the next wake or retry timer.
     entry.cleanupHandled = false;
     persistSubagentRuns();
+    scheduleRetryTimer();
     return;
   }
   if (cleanup === "delete") {
@@ -263,6 +296,77 @@ function finalizeSubagentCleanup(runId: string, cleanup: "delete" | "keep", didA
   }
   entry.cleanupCompletedAt = Date.now();
   persistSubagentRuns();
+}
+
+let retryTimer: NodeJS.Timeout | null = null;
+const RETRY_INTERVAL_MS = 30_000;
+
+function scheduleRetryTimer() {
+  if (retryTimer) {
+    return;
+  }
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void retryPendingAnnounces();
+  }, RETRY_INTERVAL_MS);
+  retryTimer.unref?.();
+}
+
+async function retryPendingAnnounces() {
+  const pending: SubagentRunRecord[] = [];
+  for (const entry of subagentRuns.values()) {
+    if (
+      entry.endedAt &&
+      !entry.cleanupCompletedAt &&
+      !entry.cleanupHandled &&
+      (entry.announceAttempts ?? 0) < MAX_ANNOUNCE_ATTEMPTS
+    ) {
+      pending.push(entry);
+    }
+  }
+  if (pending.length === 0) {
+    return;
+  }
+  defaultRuntime.log?.(`[subagent-announce] retrying ${pending.length} pending announce(s)`);
+  for (const entry of pending) {
+    if (!beginSubagentCleanup(entry.runId)) {
+      continue;
+    }
+    const requesterOrigin = normalizeDeliveryContext(entry.requesterOrigin);
+    try {
+      const didAnnounce = await runSubagentAnnounceFlow({
+        childSessionKey: entry.childSessionKey,
+        childRunId: entry.runId,
+        requesterSessionKey: entry.requesterSessionKey,
+        requesterOrigin,
+        requesterDisplayKey: entry.requesterDisplayKey,
+        task: entry.task,
+        timeoutMs: SUBAGENT_ANNOUNCE_TIMEOUT_MS,
+        cleanup: entry.cleanup,
+        waitForCompletion: false,
+        startedAt: entry.startedAt,
+        endedAt: entry.endedAt,
+        label: entry.label,
+        outcome: entry.outcome,
+      });
+      finalizeSubagentCleanup(entry.runId, entry.cleanup, didAnnounce);
+    } catch (err) {
+      finalizeSubagentCleanup(entry.runId, entry.cleanup, false, String(err));
+    }
+    // Brief delay between retries
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  // Re-check if any entries still need retrying (e.g., if retries just failed again)
+  const stillPending = [...subagentRuns.values()].some(
+    (e) =>
+      e.endedAt &&
+      !e.cleanupCompletedAt &&
+      !e.cleanupHandled &&
+      (e.announceAttempts ?? 0) < MAX_ANNOUNCE_ATTEMPTS,
+  );
+  if (stillPending) {
+    scheduleRetryTimer();
+  }
 }
 
 function beginSubagentCleanup(runId: string) {
@@ -387,9 +491,14 @@ async function waitForSubagentCompletion(runId: string, waitTimeoutMs: number) {
       endedAt: entry.endedAt,
       label: entry.label,
       outcome: entry.outcome,
-    }).then((didAnnounce) => {
-      finalizeSubagentCleanup(runId, entry.cleanup, didAnnounce);
-    });
+    }).then(
+      (didAnnounce) => {
+        finalizeSubagentCleanup(runId, entry.cleanup, didAnnounce);
+      },
+      (err) => {
+        finalizeSubagentCleanup(runId, entry.cleanup, false, String(err));
+      },
+    );
   } catch {
     // ignore
   }
@@ -399,6 +508,10 @@ export function resetSubagentRegistryForTests(opts?: { persist?: boolean }) {
   subagentRuns.clear();
   resumedRuns.clear();
   stopSweeper();
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
   restoreAttempted = false;
   if (listenerStop) {
     listenerStop();

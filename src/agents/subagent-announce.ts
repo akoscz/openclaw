@@ -395,6 +395,10 @@ export async function runSubagentAnnounceFlow(params: {
 }): Promise<boolean> {
   let didAnnounce = false;
   let shouldDeleteChildSession = params.cleanup === "delete";
+  const announceLabel = params.label ?? params.childSessionKey;
+  defaultRuntime.log?.(
+    `[subagent-announce] starting announce for ${announceLabel} → ${params.requesterSessionKey}`,
+  );
   try {
     const requesterOrigin = normalizeDeliveryContext(params.requesterOrigin);
     const childSessionId = (() => {
@@ -517,12 +521,17 @@ export async function runSubagentAnnounceFlow(params: {
       summaryLine: taskLabel,
       requesterOrigin,
     });
+    defaultRuntime.log?.(
+      `[subagent-announce] queue result: ${queued} for ${params.requesterSessionKey}`,
+    );
     if (queued === "steered") {
       didAnnounce = true;
+      defaultRuntime.log?.(`[subagent-announce] ✓ announced ${announceLabel} (steered)`);
       return true;
     }
     if (queued === "queued") {
       didAnnounce = true;
+      defaultRuntime.log?.(`[subagent-announce] ✓ announced ${announceLabel} (queued)`);
       return true;
     }
 
@@ -532,6 +541,9 @@ export async function runSubagentAnnounceFlow(params: {
       const { entry } = loadRequesterSessionEntry(params.requesterSessionKey);
       directOrigin = deliveryContextFromSession(entry);
     }
+    defaultRuntime.log?.(
+      `[subagent-announce] direct send to ${params.requesterSessionKey} via ${directOrigin?.channel}/${directOrigin?.to}`,
+    );
     await callGateway({
       method: "agent",
       params: {
@@ -552,7 +564,11 @@ export async function runSubagentAnnounceFlow(params: {
     });
 
     didAnnounce = true;
+    defaultRuntime.log?.(`[subagent-announce] ✓ announced ${announceLabel} (direct)`);
   } catch (err) {
+    defaultRuntime.log?.(
+      `[subagent-announce] ✗ failed: ${String(err)}, origin: ${JSON.stringify(params.requesterOrigin)}`,
+    );
     defaultRuntime.error?.(`Subagent announce failed: ${String(err)}`);
     // Best-effort follow-ups; ignore failures to avoid breaking the caller response.
   } finally {

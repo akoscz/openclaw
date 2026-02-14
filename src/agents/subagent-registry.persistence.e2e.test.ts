@@ -228,6 +228,122 @@ describe("subagent registry persistence", () => {
     expect(afterSecond.runs["run-3"].cleanupCompletedAt).toBeDefined();
   });
 
+  it("gives up after 3 failed announce attempts", async () => {
+    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-subagent-"));
+    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+
+    const registryPath = path.join(tempStateDir, "subagents", "runs.json");
+    const persisted = {
+      version: 2,
+      runs: {
+        "run-max": {
+          runId: "run-max",
+          childSessionKey: "agent:main:subagent:max",
+          requesterSessionKey: "agent:main:main",
+          requesterDisplayKey: "main",
+          task: "max retries",
+          cleanup: "keep",
+          createdAt: 1,
+          startedAt: 1,
+          endedAt: 2,
+          announceAttempts: 2,
+          lastAnnounceError: "previous failure",
+        },
+      },
+    };
+    await fs.mkdir(path.dirname(registryPath), { recursive: true });
+    await fs.writeFile(registryPath, `${JSON.stringify(persisted)}\n`, "utf8");
+
+    // Third attempt also fails → should give up
+    announceSpy.mockResolvedValueOnce(false);
+    resetSubagentRegistryForTests({ persist: false });
+    initSubagentRegistry();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(announceSpy).toHaveBeenCalledTimes(1);
+    const after = JSON.parse(await fs.readFile(registryPath, "utf8")) as {
+      runs: Record<string, { cleanupCompletedAt?: number; announceAttempts?: number }>;
+    };
+    // Should be marked as completed (gave up)
+    expect(after.runs["run-max"].cleanupCompletedAt).toBeDefined();
+    expect(after.runs["run-max"].announceAttempts).toBe(3);
+  });
+
+  it("succeeds on retry after previous failures", async () => {
+    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-subagent-"));
+    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+
+    const registryPath = path.join(tempStateDir, "subagents", "runs.json");
+    const persisted = {
+      version: 2,
+      runs: {
+        "run-retry-ok": {
+          runId: "run-retry-ok",
+          childSessionKey: "agent:main:subagent:retryok",
+          requesterSessionKey: "agent:main:main",
+          requesterDisplayKey: "main",
+          task: "retry success",
+          cleanup: "keep",
+          createdAt: 1,
+          startedAt: 1,
+          endedAt: 2,
+          announceAttempts: 1,
+          lastAnnounceError: "first failure",
+        },
+      },
+    };
+    await fs.mkdir(path.dirname(registryPath), { recursive: true });
+    await fs.writeFile(registryPath, `${JSON.stringify(persisted)}\n`, "utf8");
+
+    // Second attempt succeeds
+    announceSpy.mockResolvedValueOnce(true);
+    resetSubagentRegistryForTests({ persist: false });
+    initSubagentRegistry();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(announceSpy).toHaveBeenCalledTimes(1);
+    const after = JSON.parse(await fs.readFile(registryPath, "utf8")) as {
+      runs: Record<string, { cleanupCompletedAt?: number; announceAttempts?: number }>;
+    };
+    expect(after.runs["run-retry-ok"].cleanupCompletedAt).toBeDefined();
+  });
+
+  it("persists announceAttempts and lastAnnounceError fields", async () => {
+    tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-subagent-"));
+    process.env.OPENCLAW_STATE_DIR = tempStateDir;
+
+    const registryPath = path.join(tempStateDir, "subagents", "runs.json");
+    const persisted = {
+      version: 2,
+      runs: {
+        "run-fields": {
+          runId: "run-fields",
+          childSessionKey: "agent:main:subagent:fields",
+          requesterSessionKey: "agent:main:main",
+          requesterDisplayKey: "main",
+          task: "field test",
+          cleanup: "keep",
+          createdAt: 1,
+          startedAt: 1,
+          endedAt: 2,
+        },
+      },
+    };
+    await fs.mkdir(path.dirname(registryPath), { recursive: true });
+    await fs.writeFile(registryPath, `${JSON.stringify(persisted)}\n`, "utf8");
+
+    announceSpy.mockResolvedValueOnce(false);
+    resetSubagentRegistryForTests({ persist: false });
+    initSubagentRegistry();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const after = JSON.parse(await fs.readFile(registryPath, "utf8")) as {
+      runs: Record<string, { announceAttempts?: number; cleanupHandled?: boolean }>;
+    };
+    expect(after.runs["run-fields"].announceAttempts).toBe(1);
+    expect(after.runs["run-fields"].cleanupHandled).toBe(false);
+  });
+
   it("keeps delete-mode runs retryable when announce is deferred", async () => {
     tempStateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-subagent-"));
     process.env.OPENCLAW_STATE_DIR = tempStateDir;
