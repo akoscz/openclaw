@@ -570,16 +570,9 @@ export function resolveGatewaySessionStoreTarget(params: {
  * For example, if storePath is `~/.openclaw/agents/orchestrator/sessions/sessions.json`,
  * this returns `~/.openclaw/agents`.
  */
-export function resolveSessionsBaseDir(cfg: OpenClawConfig): string {
+export function resolveSessionsBaseDir(_cfg: OpenClawConfig): string {
   // Use a dummy session key to get a sample storePath, then navigate up to agents/
-  const target = resolveGatewaySessionStoreTarget({
-    cfg,
-    key: "agent:orchestrator:dummy",
-    scanLegacyKeys: false,
-  });
-  // storePath is typically: ~/.openclaw/agents/{agentId}/sessions/sessions.json
-  // Go up 3 levels: sessions.json -> sessions/ -> {agentId}/ -> agents/
-  return path.dirname(path.dirname(path.dirname(target.storePath)));
+  return resolveStateDir();
 }
 
 /**
@@ -901,6 +894,12 @@ export function listSessionsFromStore(params: {
   if (opts.includeArchived === true) {
     // Scan all agent session directories, not just the current one
     const candidateDirs = resolveArchivedSessionCandidateDirs(cfg);
+    // Also include the directory containing the current store file (ensures we find
+    // archived transcripts even when storePath doesn't match the resolved state dir)
+    const storeDir = path.dirname(storePath);
+    if (!candidateDirs.includes(storeDir)) {
+      candidateDirs.push(storeDir);
+    }
     const archivedSet = new Map<string, typeof info>();
 
     // Collect archived transcripts from all candidate directories, deduplicating by filename
