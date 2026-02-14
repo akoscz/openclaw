@@ -229,7 +229,8 @@ export type ArchivedTranscriptInfo = {
  * Pattern: `sess-<id>.jsonl.<reason>.<iso-timestamp>` or with topic suffix.
  * The ISO timestamp uses `-` instead of `:` (from `toISOString().replaceAll(":", "-")`).
  */
-export const ARCHIVED_FILENAME_RE = /^(sess-[^.]+)\.jsonl\.(deleted|reset|bak)\.([\dT._+-]+Z?)$/;
+export const ARCHIVED_FILENAME_RE =
+  /^(sess-[a-zA-Z0-9_-]+)\.jsonl\.(deleted|reset|bak)\.([\dT._+-]+Z?)$/;
 
 /**
  * Scan a sessions directory for archived transcript files.
