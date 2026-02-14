@@ -60,6 +60,7 @@ export {
   scanArchivedTranscripts,
 } from "./session-utils.fs.js";
 export type { ArchivedTranscriptInfo } from "./session-utils.fs.js";
+import type { ArchivedTranscriptInfo } from "./session-utils.fs.js";
 export type {
   GatewayAgentRow,
   GatewaySessionRow,
@@ -899,7 +900,7 @@ export function listSessionsFromStore(params: {
     if (!candidateDirs.includes(storeDir)) {
       candidateDirs.push(storeDir);
     }
-    const archivedSet = new Map<string, typeof info>();
+    const archivedSet = new Map<string, ArchivedTranscriptInfo>();
 
     // Collect archived transcripts from all candidate directories, deduplicating by filename
     for (const sessionsDir of candidateDirs) {

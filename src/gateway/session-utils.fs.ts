@@ -253,6 +253,7 @@ export function scanArchivedTranscripts(sessionsDir: string): ArchivedTranscript
       continue;
     }
     const [, sessionId, reason, rawTimestamp] = match;
+    const typedReason = reason as ArchiveFileReason;
     const filePath = path.join(sessionsDir, name);
     let fileSize = 0;
     try {
@@ -266,7 +267,7 @@ export function scanArchivedTranscripts(sessionsDir: string): ArchivedTranscript
       /(\d{4}-\d{2}-\d{2}T)(\d{2})-(\d{2})-(\d{2})/,
       "$1$2:$3:$4",
     );
-    results.push({ filePath, sessionId, reason, archivedAt, fileSize });
+    results.push({ filePath, sessionId, reason: typedReason, archivedAt, fileSize });
   }
   return results;
 }
