@@ -2,6 +2,22 @@
  * CLI commands for `openclaw secrets` subcommands.
  */
 
+import {
+  type SecretWithLabels,
+  type SecretRotationResult,
+  parseRotationLabels,
+  buildRotationLabels,
+  checkAllSecrets,
+  snoozeReminder,
+  acknowledgeRotation,
+  setRotationInterval,
+} from "../config/rotation-reminders.js";
+import {
+  rotateGatewayToken,
+  createDefaultDeps,
+  type RotationDeps,
+} from "../config/auto-rotation.js";
+
 // ---------------------------------------------------------------------------
 // Types for mock/test injection
 // ---------------------------------------------------------------------------
@@ -41,6 +57,31 @@ interface SetCommandOptions {
   name: string;
   value: string;
   _mockProvider?: { setSecret: (name: string, value: string) => Promise<void> } | null;
+}
+
+// Remind command types
+interface RemindListOptions {
+  _mockSecrets?: SecretWithLabels[];
+}
+
+interface RemindSetOptions {
+  secret: string;
+  intervalDays: number;
+  _mockGetLabels?: (name: string) => Promise<Record<string, string>>;
+  _mockSetLabels?: (name: string, labels: Record<string, string>) => Promise<void>;
+}
+
+interface RemindSnoozeOptions {
+  secret: string;
+  days: number;
+  _mockGetLabels?: (name: string) => Promise<Record<string, string>>;
+  _mockSetLabels?: (name: string, labels: Record<string, string>) => Promise<void>;
+}
+
+interface RemindAckOptions {
+  secret: string;
+  _mockGetLabels?: (name: string) => Promise<Record<string, string>>;
+  _mockSetLabels?: (name: string, labels: Record<string, string>) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,4 +292,130 @@ export async function secretsSetCommand(options: SetCommandOptions): Promise<num
     );
     return 1;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Remind Commands
+// ---------------------------------------------------------------------------
+
+export async function secretsRemindListCommand(options: RemindListOptions): Promise<number> {
+  const secrets = options._mockSecrets || [];
+  if (secrets.length === 0) {
+    console.log("No secrets found.");
+    return 0;
+  }
+
+  const results = checkAllSecrets(secrets);
+  for (const r of results) {
+    const lastRotated = r.metadata.lastRotated
+      ? r.metadata.lastRotated.toISOString().split("T")[0]
+      : "never";
+    const nextReview = r.status.nextReviewDate
+      ? r.status.nextReviewDate.toISOString().split("T")[0]
+      : "—";
+    const stateLabel = r.status.state.toUpperCase();
+    const overdue = r.status.daysOverdue ? ` (${r.status.daysOverdue}d overdue)` : "";
+    console.log(
+      `${r.name}  type=${r.metadata.rotationType}  interval=${r.metadata.rotationIntervalDays}d  last=${lastRotated}  next=${nextReview}  [${stateLabel}]${overdue}`,
+    );
+  }
+  return 0;
+}
+
+export async function secretsRemindSetCommand(options: RemindSetOptions): Promise<number> {
+  if (!options._mockGetLabels || !options._mockSetLabels) {
+    console.error("Error: No GCP client available.");
+    return 1;
+  }
+
+  try {
+    const labels = await options._mockGetLabels(options.secret);
+    const meta = parseRotationLabels(labels);
+    const updated = setRotationInterval(meta, options.intervalDays);
+    const newLabels = { ...labels, ...buildRotationLabels(updated) };
+    await options._mockSetLabels(options.secret, newLabels);
+    console.log(`Set rotation interval for "${options.secret}" to ${options.intervalDays} days.`);
+    return 0;
+  } catch (err: unknown) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+}
+
+export async function secretsRemindSnoozeCommand(options: RemindSnoozeOptions): Promise<number> {
+  if (!options._mockGetLabels || !options._mockSetLabels) {
+    console.error("Error: No GCP client available.");
+    return 1;
+  }
+
+  try {
+    const labels = await options._mockGetLabels(options.secret);
+    const meta = parseRotationLabels(labels);
+    const updated = snoozeReminder(meta, options.days);
+    const newLabels = { ...labels, ...buildRotationLabels(updated) };
+    await options._mockSetLabels(options.secret, newLabels);
+    console.log(`Snoozed reminders for "${options.secret}" for ${options.days} days.`);
+    return 0;
+  } catch (err: unknown) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+}
+
+export async function secretsRemindAckCommand(options: RemindAckOptions): Promise<number> {
+  if (!options._mockGetLabels || !options._mockSetLabels) {
+    console.error("Error: No GCP client available.");
+    return 1;
+  }
+
+  try {
+    const labels = await options._mockGetLabels(options.secret);
+    const meta = parseRotationLabels(labels);
+    const updated = acknowledgeRotation(meta);
+    const newLabels = { ...labels, ...buildRotationLabels(updated) };
+    // Ack clears snooze
+    delete newLabels["snoozed-until"];
+    await options._mockSetLabels(options.secret, newLabels);
+    console.log(`Acknowledged rotation for "${options.secret}". Last rotated set to now.`);
+    return 0;
+  } catch (err: unknown) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rotate Command
+// ---------------------------------------------------------------------------
+
+interface RotateCommandOptions {
+  secret?: string;
+  _mockDeps?: Partial<RotationDeps>;
+}
+
+export async function secretsRotateCommand(options: RotateCommandOptions): Promise<number> {
+  const secretName = options.secret ?? "openclaw-main-gateway-token";
+
+  if (secretName !== "openclaw-main-gateway-token") {
+    console.error(`Error: Auto-rotation is only supported for "openclaw-main-gateway-token" currently.`);
+    return 1;
+  }
+
+  console.log(`Rotating secret: ${secretName}`);
+
+  const deps = createDefaultDeps(options._mockDeps);
+  const result = await rotateGatewayToken(deps);
+
+  if (!result.success) {
+    console.error(`Rotation failed: ${result.error}`);
+    if (result.oldToken) {
+      console.error(`Old token preserved. No changes made to config.`);
+    }
+    return 1;
+  }
+
+  console.log(`✓ New token stored in GCP (version: ${result.versionName ?? "latest"})`);
+  console.log(`✓ Local config updated`);
+  console.log(`⚠ Gateway restart required for new token to take effect`);
+  return 0;
 }

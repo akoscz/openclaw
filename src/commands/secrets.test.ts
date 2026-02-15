@@ -9,6 +9,10 @@ import {
   secretsSetupCommand,
   secretsMigrateCommand,
   secretsSetCommand,
+  secretsRemindListCommand,
+  secretsRemindSetCommand,
+  secretsRemindSnoozeCommand,
+  secretsRemindAckCommand,
 } from "./secrets.js";
 
 // ---------------------------------------------------------------------------
@@ -398,5 +402,143 @@ describe("openclaw secrets set", () => {
 
     expect(exitCode).toBe(0);
     expect(setSecret).toHaveBeenCalledWith("special-chars", 'p@$$w0rd!#%&*"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// openclaw secrets remind list
+// ---------------------------------------------------------------------------
+
+describe("openclaw secrets remind list", () => {
+  it("shows rotation status for all secrets", async () => {
+    const con = mockConsole();
+    try {
+      const exitCode = await secretsRemindListCommand({
+        _mockSecrets: [
+          { name: "my-api-key", labels: { "rotation-type": "manual", "rotation-interval-days": "90", "last-rotated": "2026-02-01t00-00-00-000z" } },
+          { name: "old-key", labels: { "rotation-type": "manual", "rotation-interval-days": "30", "last-rotated": "2025-12-01t00-00-00-000z" } },
+        ],
+      });
+      expect(exitCode).toBe(0);
+      expect(con.logs.some((l) => l.includes("my-api-key"))).toBe(true);
+      expect(con.logs.some((l) => l.includes("old-key"))).toBe(true);
+      expect(con.logs.some((l) => l.includes("REVIEW-DUE"))).toBe(true);
+    } finally {
+      con.restore();
+    }
+  });
+
+  it("shows message when no secrets", async () => {
+    const con = mockConsole();
+    try {
+      const exitCode = await secretsRemindListCommand({ _mockSecrets: [] });
+      expect(exitCode).toBe(0);
+      expect(con.logs.some((l) => /no secrets/i.test(l))).toBe(true);
+    } finally {
+      con.restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// openclaw secrets remind set
+// ---------------------------------------------------------------------------
+
+describe("openclaw secrets remind set", () => {
+  it("sets rotation interval on a secret", async () => {
+    const con = mockConsole();
+    const setLabels = vi.fn().mockResolvedValue(undefined);
+    try {
+      const exitCode = await secretsRemindSetCommand({
+        secret: "my-key",
+        intervalDays: 30,
+        _mockGetLabels: async () => ({ "rotation-type": "manual", "rotation-interval-days": "90" }),
+        _mockSetLabels: setLabels,
+      });
+      expect(exitCode).toBe(0);
+      expect(setLabels).toHaveBeenCalled();
+      const labels = setLabels.mock.calls[0][1];
+      expect(labels["rotation-interval-days"]).toBe("30");
+    } finally {
+      con.restore();
+    }
+  });
+
+  it("fails when no GCP client", async () => {
+    const con = mockConsole();
+    try {
+      const exitCode = await secretsRemindSetCommand({
+        secret: "my-key",
+        intervalDays: 30,
+      });
+      expect(exitCode).toBe(1);
+    } finally {
+      con.restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// openclaw secrets remind snooze
+// ---------------------------------------------------------------------------
+
+describe("openclaw secrets remind snooze", () => {
+  it("snoozes reminder for N days", async () => {
+    const con = mockConsole();
+    const setLabels = vi.fn().mockResolvedValue(undefined);
+    try {
+      const exitCode = await secretsRemindSnoozeCommand({
+        secret: "my-key",
+        days: 7,
+        _mockGetLabels: async () => ({ "rotation-type": "manual" }),
+        _mockSetLabels: setLabels,
+      });
+      expect(exitCode).toBe(0);
+      expect(setLabels).toHaveBeenCalled();
+      const labels = setLabels.mock.calls[0][1];
+      expect(labels["snoozed-until"]).toBeDefined();
+    } finally {
+      con.restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// openclaw secrets remind ack
+// ---------------------------------------------------------------------------
+
+describe("openclaw secrets remind ack", () => {
+  it("acknowledges rotation (sets lastRotated to now)", async () => {
+    const con = mockConsole();
+    const setLabels = vi.fn().mockResolvedValue(undefined);
+    try {
+      const exitCode = await secretsRemindAckCommand({
+        secret: "my-key",
+        _mockGetLabels: async () => ({ "rotation-type": "manual" }),
+        _mockSetLabels: setLabels,
+      });
+      expect(exitCode).toBe(0);
+      expect(setLabels).toHaveBeenCalled();
+      const labels = setLabels.mock.calls[0][1];
+      expect(labels["last-rotated"]).toBeDefined();
+    } finally {
+      con.restore();
+    }
+  });
+
+  it("clears snooze on ack", async () => {
+    const con = mockConsole();
+    const setLabels = vi.fn().mockResolvedValue(undefined);
+    try {
+      await secretsRemindAckCommand({
+        secret: "my-key",
+        _mockGetLabels: async () => ({ "rotation-type": "manual", "snoozed-until": "2026-03-01t00-00-00-000z" }),
+        _mockSetLabels: setLabels,
+      });
+      const labels = setLabels.mock.calls[0][1];
+      expect(labels["snoozed-until"]).toBeUndefined();
+    } finally {
+      con.restore();
+    }
   });
 });
