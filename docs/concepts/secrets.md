@@ -36,6 +36,35 @@ OpenClaw can resolve secret references in configuration files at runtime, fetchi
 - A GCP project with billing enabled
 - `gcloud` CLI installed and authenticated
 - VM or environment with `cloud-platform` OAuth scope (for Compute Engine VMs)
+- The service account running OpenClaw needs the **Secret Manager Secret Accessor** role (`roles/secretmanager.secretAccessor`)
+
+#### Compute Engine VM Setup
+
+If running on a GCP Compute Engine VM, two things are required:
+
+**OAuth Scopes** — the VM must have `cloud-platform` scope. To update:
+
+```bash
+gcloud compute instances stop <instance> --zone=<zone>
+gcloud compute instances set-service-account <instance> --zone=<zone> --scopes=cloud-platform
+gcloud compute instances start <instance> --zone=<zone>
+```
+
+**IAM Role** — grant the VM's service account permission to read secrets:
+
+```bash
+gcloud projects add-iam-policy-binding <project-id> \
+  --member="serviceAccount:<service-account-email>" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Or via the GCP Console:
+
+1. Go to **IAM & Admin → IAM**
+2. Find the compute service account
+3. Click **Edit** (pencil icon)
+4. Add role: **Secret Manager Secret Accessor**
+5. Save
 
 ### 2. Bootstrap
 
