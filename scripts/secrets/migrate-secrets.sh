@@ -103,7 +103,8 @@ fi
 
 # GitHub PAT
 if [[ -f "$HOME/.git-credentials" ]]; then
-  pat=$(grep -oP '://[^:]+:\K[^@]+' "$HOME/.git-credentials" 2>/dev/null | head -1)
+  # Only extract PATs from github.com entries (ghp_ or gho_ prefix)
+  pat=$(grep 'github\.com' "$HOME/.git-credentials" 2>/dev/null | grep -oP '://[^:]+:\Kghp_[^@]+' | head -1)
   if [[ -n "$pat" && "$pat" != "#"* ]]; then
     SECRETS_TO_MIGRATE["openclaw-main-github-pat"]="$pat"
     echo "  Found: GitHub PAT → openclaw-main-github-pat"
