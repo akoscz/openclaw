@@ -9,6 +9,9 @@
 
 import { isPlainObject } from "../utils.js";
 import { AwsSecretProvider } from "./aws-secret-provider.js";
+import { EnvSecretProvider } from "./env-secret-provider.js";
+import { KeyringSecretProvider } from "./keyring-secret-provider.js";
+import { OnePasswordSecretProvider } from "./onepassword-secret-provider.js";
 
 // Matches ${provider:name} or ${provider:name#version}
 // Provider: lowercase alpha. Name: alphanum, hyphens, underscores, slashes, dots.
@@ -35,6 +38,13 @@ export type SecretsConfig = {
       profile?: string;
       roleArn?: string;
       externalId?: string;
+      // Keyring-specific
+      account?: string;
+      keychainPath?: string;
+      keychainPassword?: string;
+      // 1Password-specific
+      vault?: string;
+      field?: string;
     }
   >;
 };
@@ -311,6 +321,28 @@ export function buildSecretProviders(
           credentialsFile: config.credentialsFile,
           roleArn: config.roleArn,
           externalId: config.externalId,
+        }),
+      );
+    }
+    if (name === "env") {
+      providers.set("env", new EnvSecretProvider());
+    }
+    if (name === "keyring") {
+      providers.set(
+        "keyring",
+        new KeyringSecretProvider({
+          account: config?.account as string | undefined,
+          keychainPath: config?.keychainPath as string | undefined,
+          keychainPassword: config?.keychainPassword as string | undefined,
+        }),
+      );
+    }
+    if (name === "1password") {
+      providers.set(
+        "1password",
+        new OnePasswordSecretProvider({
+          vault: config?.vault as string | undefined,
+          field: config?.field as string | undefined,
         }),
       );
     }
