@@ -94,15 +94,15 @@ export class GcpSecretProvider implements SecretProvider {
     this.cacheTtlMs = (config.cacheTtlSeconds ?? 300) * 1000;
   }
 
-  private async getClient(): Promise<any> {
+  private async getClient(): Promise<unknown> {
     try {
       const mod = await import("@google-cloud/secret-manager");
       const Ctor = mod.SecretManagerServiceClient;
       // Support both `new Ctor()` (real) and mock functions that don't support `new`
       try {
-        return new (Ctor as any)();
+        return new (Ctor as unknown as new () => unknown)();
       } catch {
-        return (Ctor as any)();
+        return (Ctor as unknown as new () => unknown)();
       }
     } catch {
       throw new Error(
@@ -122,11 +122,11 @@ export class GcpSecretProvider implements SecretProvider {
     const client = await this.getClient();
     const resourceName = `projects/${this.project}/secrets/${secretName}/versions/${ver}`;
 
-    let response: any;
+    let response: { payload?: { data?: Uint8Array | string } } | undefined;
     try {
       [response] = await client.accessSecretVersion({ name: resourceName });
-    } catch (err: any) {
-      const code = err?.code;
+    } catch (err: unknown) {
+      const code = (err as { code?: number })?.code;
       if (code === 5) {
         throw new Error(`Secret '${secretName}' not found in project '${this.project}'`, {
           cause: err,
@@ -192,7 +192,7 @@ export class GcpSecretProvider implements SecretProvider {
     const [secrets] = await client.listSecrets({
       parent: `projects/${this.project}`,
     });
-    return (secrets || []).map((s: any) => {
+    return (secrets || []).map((s: { name?: string }) => {
       const name: string = s.name || "";
       const parts = name.split("/");
       return parts[parts.length - 1];
@@ -204,8 +204,8 @@ export class GcpSecretProvider implements SecretProvider {
       const client = await this.getClient();
       await client.listSecrets({ parent: `projects/${this.project}` });
       return { ok: true };
-    } catch (err: any) {
-      return { ok: false, error: err?.message || String(err) };
+    } catch (err: unknown) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 }
@@ -333,7 +333,7 @@ async function resolveString(
   }
 
   // Handle escaped refs first: replace $${ with a placeholder
-  const ESCAPE_PLACEHOLDER = "\x00ESC\x00";
+  const ESCAPE_PLACEHOLDER = "___OPENCLAW_ESC___";
   let working = value.replace(/\$\$\{/g, ESCAPE_PLACEHOLDER);
 
   // Collect matches
@@ -341,7 +341,11 @@ async function resolveString(
   const matches: Array<{ full: string; provider: string; name: string; version?: string }> = [];
   let match: RegExpExecArray | null;
   while ((match = SECRET_REF_PATTERN.exec(working)) !== null) {
-    const m: any = { full: match[0], provider: match[1], name: match[2] };
+    const m: { full: string; provider: string; name: string; version?: string } = {
+      full: match[0],
+      provider: match[1],
+      name: match[2],
+    };
     if (match[3]) {
       m.version = match[3];
     }
@@ -350,7 +354,7 @@ async function resolveString(
 
   if (matches.length === 0) {
     // Restore escaped refs as literals
-    return working.replace(new RegExp(ESCAPE_PLACEHOLDER.replace(/\x00/g, "\\x00"), "g"), "${");
+    return working.replaceAll(ESCAPE_PLACEHOLDER, "${");
   }
 
   // Resolve all in parallel
@@ -379,7 +383,7 @@ async function resolveString(
   }
 
   // Restore escaped refs
-  working = working.replace(new RegExp(ESCAPE_PLACEHOLDER.replace(/\x00/g, "\\x00"), "g"), "${");
+  working = working.replaceAll(ESCAPE_PLACEHOLDER, "${");
   return working;
 }
 

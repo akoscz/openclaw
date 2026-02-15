@@ -190,8 +190,10 @@ export async function secretsMigrateCommand(options: MigrateCommandOptions): Pro
     try {
       await provider.setSecret(item.suggestedName, item.value);
       console.log(`Uploaded: ${item.suggestedName} (from ${item.path})`);
-    } catch (err: any) {
-      console.error(`Failed to upload ${item.suggestedName}: ${err?.message}`);
+    } catch (err: unknown) {
+      console.error(
+        `Failed to upload ${item.suggestedName}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       allUploaded = false;
     }
   }
@@ -205,8 +207,10 @@ export async function secretsMigrateCommand(options: MigrateCommandOptions): Pro
   for (const item of found) {
     try {
       await provider.getSecret(item.suggestedName);
-    } catch (err: any) {
-      console.error(`Verification failed for ${item.suggestedName}: ${err?.message}`);
+    } catch (err: unknown) {
+      console.error(
+        `Verification failed for ${item.suggestedName}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return 1;
     }
   }
@@ -241,8 +245,10 @@ export async function secretsSetCommand(options: SetCommandOptions): Promise<num
     await provider.setSecret(options.name, options.value);
     console.log(`Secret "${options.name}" stored successfully.`);
     return 0;
-  } catch (err: any) {
-    console.error(`Error: Failed to store secret "${options.name}": ${err?.message}`);
+  } catch (err: unknown) {
+    console.error(
+      `Error: Failed to store secret "${options.name}": ${err instanceof Error ? err.message : String(err)}`,
+    );
     return 1;
   }
 }
