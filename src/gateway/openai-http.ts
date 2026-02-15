@@ -248,6 +248,39 @@ export async function handleOpenAiHttpRequest(
       return;
     }
 
+    if (evt.stream === "thinking") {
+      const delta = typeof evt.data?.delta === "string" ? evt.data.delta : "";
+      if (!delta) {
+        return;
+      }
+
+      if (!wroteRole) {
+        wroteRole = true;
+        writeSse(res, {
+          id: runId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [{ index: 0, delta: { role: "assistant" } }],
+        });
+      }
+
+      writeSse(res, {
+        id: runId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: delta },
+            finish_reason: null,
+          },
+        ],
+      });
+      return;
+    }
+
     if (evt.stream === "assistant") {
       const content = resolveAssistantStreamDeltaText(evt);
       if (!content) {
