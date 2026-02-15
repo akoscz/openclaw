@@ -12,30 +12,6 @@ import {
   GcpSecretProvider,
 } from "./secret-resolution.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function mockProvider(secrets: Record<string, string>): SecretProvider {
-  return {
-    name: "mock",
-    async getSecret(name: string, _version?: string): Promise<string> {
-      const val = secrets[name];
-      if (val === undefined) {
-        throw new Error(`Secret not found: ${name}`);
-      }
-      return val;
-    },
-    async setSecret(_name: string, _value: string): Promise<void> {},
-    async listSecrets(): Promise<string[]> {
-      return Object.keys(secrets);
-    },
-    async testConnection(): Promise<{ ok: boolean; error?: string }> {
-      return { ok: true };
-    },
-  };
-}
-
 beforeEach(() => {
   clearSecretCache();
 });
@@ -202,7 +178,7 @@ describe("Secret Reference Parsing", () => {
       const result = await resolveConfigSecrets(config, secretsConfig);
       // Should resolve the ref inline
       expect(result).toHaveProperty("url");
-      expect((result as any).url).toContain("/v1");
+      expect((result as Record<string, unknown>).url).toContain("/v1");
     });
 
     it("multiple secret refs in one string", async () => {
@@ -211,7 +187,7 @@ describe("Secret Reference Parsing", () => {
       };
       const config = { dsn: "${gcp:db-user}:${gcp:db-pass}@host" };
       const result = await resolveConfigSecrets(config, secretsConfig);
-      expect((result as any).dsn).toContain("@host");
+      expect((result as Record<string, unknown>).dsn).toContain("@host");
     });
   });
 
@@ -250,7 +226,7 @@ describe("Config Tree Walking", () => {
       },
     };
     const result = await resolveConfigSecrets(config, secretsConfig);
-    expect((result as any).level1.level2.level3.secret).toBeDefined();
+    expect((result as Record<string, unknown>).level1.level2.level3.secret).toBeDefined();
   });
 
   it("resolves refs inside arrays", async () => {
@@ -261,7 +237,7 @@ describe("Config Tree Walking", () => {
       keys: ["${gcp:key1}", "${gcp:key2}"],
     };
     const result = await resolveConfigSecrets(config, secretsConfig);
-    expect((result as any).keys).toHaveLength(2);
+    expect((result as Record<string, unknown>).keys).toHaveLength(2);
   });
 
   it("leaves numbers untouched", async () => {
