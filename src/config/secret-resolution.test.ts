@@ -19,11 +19,11 @@ function createMockProvider(
 ): SecretProvider {
   return {
     name: "gcp",
-    getSecret: vi.fn(async (name: string) => {
-      if (name in secrets) {
-        return secrets[name];
+    getSecret: vi.fn(async (secretName: string) => {
+      if (secretName in secrets) {
+        return secrets[secretName];
       }
-      throw new Error(`Secret '${name}' not found in project 'test-project'`);
+      throw new Error(`Secret '${secretName}' not found in project 'test-project'`);
     }),
     setSecret: vi.fn(async () => {}),
     listSecrets: vi.fn(async () => Object.keys(secrets)),
@@ -375,7 +375,7 @@ describe("Cache Behavior", () => {
   it("stale-while-revalidate: uses expired cache when provider unreachable", async () => {
     // First call succeeds and populates cache
     let shouldFail = false;
-    const getSecret = vi.fn(async (name: string) => {
+    const getSecret = vi.fn(async (_name: string) => {
       if (shouldFail) {
         throw new Error("Provider unreachable");
       }
