@@ -102,6 +102,7 @@ export class GcpSecretProvider implements SecretProvider {
       try {
         return new (Ctor as unknown as new () => unknown)();
       } catch {
+        // Fallback for mock functions that don't support new operator
         return (Ctor as unknown as new () => unknown)();
       }
     } catch {
@@ -178,7 +179,7 @@ export class GcpSecretProvider implements SecretProvider {
         secret: { replication: { automatic: {} } },
       });
     } catch {
-      // Secret may already exist
+      // Secret may already exist; other errors will surface on addSecretVersion
     }
 
     await client.addSecretVersion({
