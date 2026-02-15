@@ -30,7 +30,8 @@ export function isCronRunSessionKey(sessionKey: string | undefined | null): bool
   if (!parsed) {
     return false;
   }
-  return /^cron:[^:]+:run:[^:]+$/.test(parsed.rest);
+  // Match both cron run sessions (cron:<id>:run:<id>) and cron target sessions (cron:<id>)
+  return /^cron:[^:]+(:run:[^:]+)?$/.test(parsed.rest);
 }
 
 export function isSubagentSessionKey(sessionKey: string | undefined | null): boolean {
