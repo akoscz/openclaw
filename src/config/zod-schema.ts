@@ -631,6 +631,23 @@ export const OpenClawSchema = z
       })
       .strict()
       .optional(),
+    secrets: z
+      .object({
+        providers: z
+          .object({
+            gcp: z
+              .object({
+                project: z.string(),
+                cacheTtlSeconds: z.number().int().nonnegative().optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
