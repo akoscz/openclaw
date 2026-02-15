@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import type { SecretsConfig, SecretProvider } from "./secret-resolution.js";
+import type { SecretsConfig } from "./secret-resolution.js";
 import {
   resolveConfigSecrets,
   extractSecretReferences,
