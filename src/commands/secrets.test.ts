@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 // CLI command tests for `openclaw secrets` subcommands.
 // These test the CLI layer — provider interactions are mocked.
 // The actual implementation will be in src/commands/secrets.ts
@@ -148,7 +148,7 @@ describe("openclaw secrets list", () => {
 describe("openclaw secrets setup", () => {
   it("checks for gcloud CLI availability", async () => {
     const steps: string[] = [];
-    const exitCode = await secretsSetupCommand({
+    await secretsSetupCommand({
       project: "test-project",
       yes: true,
       _mockExec: async (cmd: string) => {
@@ -163,7 +163,7 @@ describe("openclaw secrets setup", () => {
   });
 
   it("fails if gcloud is not installed", async () => {
-    const exitCode = await secretsSetupCommand({
+    const _exitCode = await secretsSetupCommand({
       project: "test-project",
       yes: true,
       _mockExec: async (cmd: string) => {
@@ -173,7 +173,7 @@ describe("openclaw secrets setup", () => {
         return { stdout: "", exitCode: 0 };
       },
     });
-    expect(exitCode).toBe(1);
+    expect(_exitCode).toBe(1);
   });
 
   it("enables Secret Manager API", async () => {
@@ -230,7 +230,9 @@ describe("openclaw secrets setup", () => {
       },
     });
     expect(writtenConfig).toBeDefined();
-    expect((writtenConfig as any)?.secrets?.providers?.gcp?.project).toBe("test-project");
+    expect((writtenConfig as Record<string, unknown>)?.secrets?.providers?.gcp?.project).toBe(
+      "test-project",
+    );
   });
 });
 
@@ -321,7 +323,7 @@ describe("openclaw secrets migrate", () => {
   it("prompts for confirmation before purging plaintext", async () => {
     let promptShown = false;
 
-    const exitCode = await secretsMigrateCommand({
+    const _exitCode = await secretsMigrateCommand({
       configPath: "/tmp/test-config.json",
       yes: false, // interactive mode
       _mockConfig: {
@@ -332,7 +334,7 @@ describe("openclaw secrets migrate", () => {
         setSecret: vi.fn().mockResolvedValue(undefined),
         getSecret: vi.fn().mockResolvedValue("sk-key"),
       },
-      _mockPrompt: async (message: string) => {
+      _mockPrompt: async (_message: string) => {
         promptShown = true;
         return true; // user confirms
       },
