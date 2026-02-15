@@ -33,7 +33,14 @@ interface ListCommandOptions {
 }
 
 interface SetupCommandOptions {
-  project: string;
+  provider?: string;
+  // GCP
+  project?: string;
+  // AWS
+  region?: string;
+  profile?: string;
+  roleArn?: string;
+  // Common
   agents?: string[];
   yes?: boolean;
   _mockExec?: (cmd: string) => Promise<{ stdout: string; exitCode: number }>;
@@ -169,25 +176,77 @@ export async function secretsSetupCommand(options: SetupCommandOptions): Promise
     return 1;
   }
 
-  // 1. Check gcloud
+  const provider = options.provider ?? "gcp";
+
+  if (provider === "aws") {
+    return secretsSetupAws(options);
+  }
+
+  // GCP setup (original)
   const gcloudCheck = await exec("gcloud --version");
   if (gcloudCheck.exitCode !== 0) {
     console.error("Error: gcloud CLI is not installed or not in PATH");
     return 1;
   }
 
-  // 2. Enable Secret Manager API
   await exec(`gcloud services enable secretmanager.googleapis.com --project=${options.project}`);
 
-  // 3. Create service accounts for agents
   const agents = options.agents || ["main"];
   for (const agent of agents) {
     await exec(
       `gcloud iam service-accounts create openclaw-${agent} --display-name="OpenClaw ${agent} agent" --project=${options.project}`,
     );
-    // Bind secretAccessor role
     await exec(
       `gcloud projects add-iam-policy-binding ${options.project} --member=serviceAccount:openclaw-${agent}@${options.project}.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor`,
+    );
+  }
+
+  const secretsConfig = {
+    secrets: {
+      providers: {
+        gcp: { project: options.project },
+      },
+    },
+  };
+
+  if (options._mockWriteConfig) {
+    options._mockWriteConfig(secretsConfig);
+  }
+
+  return 0;
+}
+
+async function secretsSetupAws(options: SetupCommandOptions): Promise<number> {
+  const exec = options._mockExec!;
+
+  // 1. Check AWS CLI
+  const awsCheck = await exec("aws --version");
+  if (awsCheck.exitCode !== 0) {
+    console.error("Error: AWS CLI is not installed or not in PATH");
+    return 1;
+  }
+
+  // 2. Verify credentials
+  const stsCheck = await exec("aws sts get-caller-identity");
+  if (stsCheck.exitCode !== 0) {
+    console.error("Error: AWS credentials not configured. Run `aws configure` first.");
+    return 1;
+  }
+
+  const region = options.region ?? "us-east-1";
+  const agents = options.agents || ["main"];
+
+  // 3. Create IAM policies for per-agent isolation
+  for (const agent of agents) {
+    const policyName = `openclaw-${agent}-secrets`;
+    await exec(
+      `aws iam create-policy --policy-name ${policyName} --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["secretsmanager:GetSecretValue"],"Resource":"arn:aws:secretsmanager:${region}:*:secret:openclaw-${agent}-*"}]}'`,
+    );
+    await exec(
+      `aws iam create-user --user-name openclaw-${agent}`,
+    );
+    await exec(
+      `aws iam attach-user-policy --user-name openclaw-${agent} --policy-arn arn:aws:iam::*:policy/${policyName}`,
     );
   }
 
@@ -195,7 +254,11 @@ export async function secretsSetupCommand(options: SetupCommandOptions): Promise
   const secretsConfig = {
     secrets: {
       providers: {
-        gcp: { project: options.project },
+        aws: {
+          region,
+          ...(options.profile ? { profile: options.profile } : {}),
+          ...(options.roleArn ? { roleArn: options.roleArn } : {}),
+        },
       },
     },
   };
