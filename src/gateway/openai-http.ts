@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { readString } from "../acp/meta.js";
 import { createDefaultDeps } from "../cli/deps.js";
 import { agentCommand } from "../commands/agent.js";
 import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
@@ -177,6 +178,16 @@ export async function handleOpenAiHttpRequest(
   const model = typeof payload.model === "string" ? payload.model : "openclaw";
   const user = typeof payload.user === "string" ? payload.user : undefined;
 
+  // Extract thinking/reasoning level from request.
+  // Supports: reasoning_effort (OpenAI standard), thinking (custom), or X-Thinking-Level header.
+  const thinkingRaw =
+    readString(payload, ["reasoning_effort"]) ||
+    readString(payload, ["thinking"]) ||
+    (typeof req.headers["x-thinking-level"] === "string"
+      ? req.headers["x-thinking-level"]
+      : undefined);
+  const thinking = thinkingRaw ? thinkingRaw.trim().toLowerCase() || undefined : undefined;
+
   const agentId = resolveAgentIdForRequest({ req, model });
   const sessionKey = resolveOpenAiSessionKey({ req, agentId, user });
   const prompt = buildAgentPrompt(payload.messages);
@@ -204,6 +215,7 @@ export async function handleOpenAiHttpRequest(
           deliver: false,
           messageChannel: "webchat",
           bestEffortDeliver: false,
+          thinking,
         },
         defaultRuntime,
         deps,
@@ -342,6 +354,7 @@ export async function handleOpenAiHttpRequest(
           deliver: false,
           messageChannel: "webchat",
           bestEffortDeliver: false,
+          thinking,
         },
         defaultRuntime,
         deps,
