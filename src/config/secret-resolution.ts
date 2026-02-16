@@ -105,6 +105,20 @@ export interface SecretProvider {
 // GcpSecretProvider
 // ---------------------------------------------------------------------------
 
+/** Minimal interface for the GCP SecretManagerServiceClient used at runtime. */
+interface GcpSmClient {
+  accessSecretVersion(req: {
+    name: string;
+  }): Promise<[{ payload?: { data?: Uint8Array | string } } | undefined]>;
+  createSecret(req: {
+    parent: string;
+    secretId: string;
+    secret: { replication: { automatic: Record<string, never> } };
+  }): Promise<unknown>;
+  addSecretVersion(req: { parent: string; payload: { data: Buffer } }): Promise<unknown>;
+  listSecrets(req: { parent: string }): Promise<[Array<{ name?: string }>]>;
+}
+
 export class GcpSecretProvider implements SecretProvider {
   public readonly name = "gcp";
   private readonly project: string;
@@ -116,17 +130,17 @@ export class GcpSecretProvider implements SecretProvider {
     this.credentialsFile = config.credentialsFile;
   }
 
-  private async getClient(): Promise<unknown> {
+  private async getClient(): Promise<GcpSmClient> {
     try {
       const mod = await import("@google-cloud/secret-manager");
       const Ctor = mod.SecretManagerServiceClient;
       const opts = this.credentialsFile ? { keyFilename: this.credentialsFile } : {};
       // Support both `new Ctor(opts)` (real) and mock functions that don't support `new`
       try {
-        return new (Ctor as unknown as new (o: Record<string, unknown>) => unknown)(opts);
+        return new (Ctor as unknown as new (o: Record<string, unknown>) => GcpSmClient)(opts);
       } catch {
         // Fallback for mock functions that don't support new operator
-        return (Ctor as unknown as (o: Record<string, unknown>) => unknown)(opts);
+        return (Ctor as unknown as (o: Record<string, unknown>) => GcpSmClient)(opts);
       }
     } catch {
       throw new Error(
@@ -331,9 +345,9 @@ export function buildSecretProviders(
       providers.set(
         "keyring",
         new KeyringSecretProvider({
-          account: config?.account as string | undefined,
-          keychainPath: config?.keychainPath as string | undefined,
-          keychainPassword: config?.keychainPassword as string | undefined,
+          account: config?.account,
+          keychainPath: config?.keychainPath,
+          keychainPassword: config?.keychainPassword,
         }),
       );
     }
@@ -341,8 +355,8 @@ export function buildSecretProviders(
       providers.set(
         "1password",
         new OnePasswordSecretProvider({
-          vault: config?.vault as string | undefined,
-          field: config?.field as string | undefined,
+          vault: config?.vault,
+          field: config?.field,
         }),
       );
     }
