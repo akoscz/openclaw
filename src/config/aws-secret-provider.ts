@@ -12,7 +12,18 @@ import { type SecretProvider } from "./secret-resolution.js";
 // ---------------------------------------------------------------------------
 
 interface AwsSmClient {
-  send(command: unknown): Promise<any>;
+  send(command: unknown): Promise<Record<string, unknown>>;
+}
+
+// Minimal shape of the lazy-loaded AWS SDK module
+interface AwsSdkModule {
+  SecretsManagerClient: new (opts: Record<string, unknown>) => AwsSmClient;
+  GetSecretValueCommand: new (params: Record<string, string>) => unknown;
+  PutSecretValueCommand: new (params: Record<string, string>) => unknown;
+  CreateSecretCommand: new (params: Record<string, string>) => unknown;
+  ListSecretsCommand: new (params: Record<string, unknown>) => unknown;
+  DescribeSecretCommand: new (params: Record<string, string>) => unknown;
+  TagResourceCommand: new (params: Record<string, unknown>) => unknown;
 }
 
 export interface AwsProviderConfig {
@@ -68,19 +79,18 @@ export class AwsSecretProvider implements SecretProvider {
   // -------------------------------------------------------------------------
 
   private clientInstance?: AwsSmClient;
-  private sdkModule?: any;
+  private sdkModule?: AwsSdkModule;
 
-  private async getSdk(): Promise<any> {
+  private async getSdk(): Promise<AwsSdkModule> {
     if (this.sdkModule) {
       return this.sdkModule;
     }
+    const pkg = "@aws-sdk/client-secrets-manager";
     try {
-      this.sdkModule = await import("@aws-sdk/client-secrets-manager");
+      this.sdkModule = (await import(pkg)) as AwsSdkModule;
       return this.sdkModule;
     } catch {
-      throw new Error(
-        "Please install @aws-sdk/client-secrets-manager: pnpm add @aws-sdk/client-secrets-manager",
-      );
+      throw new Error(`Please install ${pkg}: pnpm add ${pkg}`);
     }
   }
 
@@ -96,7 +106,7 @@ export class AwsSecretProvider implements SecretProvider {
       opts.profile = this.profile;
     }
 
-    this.clientInstance = new sdk.SecretsManagerClient(opts) as AwsSmClient;
+    this.clientInstance = new sdk.SecretsManagerClient(opts);
     return this.clientInstance;
   }
 
@@ -122,11 +132,11 @@ export class AwsSecretProvider implements SecretProvider {
       params.VersionStage = version;
     }
 
-    let response: any;
+    let response: Record<string, unknown>;
     try {
       response = await client.send(new sdk.GetSecretValueCommand(params));
     } catch (err: unknown) {
-      const errName = (err as any)?.name;
+      const errName = (err as Record<string, unknown>)?.name;
 
       if (errName === "ResourceNotFoundException") {
         throw new Error(`Secret '${secretName}' not found in region '${this.region}'`, {
@@ -159,9 +169,9 @@ export class AwsSecretProvider implements SecretProvider {
     // Extract value
     let value: string;
     if (response.SecretString) {
-      value = response.SecretString;
+      value = response.SecretString as string;
     } else if (response.SecretBinary) {
-      value = Buffer.from(response.SecretBinary).toString("utf-8");
+      value = Buffer.from(response.SecretBinary as Uint8Array).toString("utf-8");
     } else {
       throw new Error(`Secret "${secretName}" has no payload data`);
     }
@@ -183,7 +193,7 @@ export class AwsSecretProvider implements SecretProvider {
         }),
       );
     } catch (err: unknown) {
-      if ((err as any)?.name === "ResourceNotFoundException") {
+      if ((err as Record<string, unknown>)?.name === "ResourceNotFoundException") {
         // Secret doesn't exist — create it, then put value
         await client.send(
           new sdk.CreateSecretCommand({
@@ -217,12 +227,13 @@ export class AwsSecretProvider implements SecretProvider {
       }
 
       const response = await client.send(new sdk.ListSecretsCommand(params));
-      for (const secret of response.SecretList ?? []) {
+      const secretList = (response.SecretList ?? []) as Array<Record<string, unknown>>;
+      for (const secret of secretList) {
         if (secret.Name) {
-          names.push(secret.Name);
+          names.push(secret.Name as string);
         }
       }
-      nextToken = response.NextToken;
+      nextToken = response.NextToken as string | undefined;
     } while (nextToken);
 
     return names;
@@ -249,18 +260,22 @@ export class AwsSecretProvider implements SecretProvider {
     const response = await client.send(new sdk.DescribeSecretCommand({ SecretId: secretName }));
 
     const tags: Record<string, string> = {};
-    for (const tag of response.Tags ?? []) {
+    const tagList = (response.Tags ?? []) as Array<Record<string, unknown>>;
+    for (const tag of tagList) {
       if (tag.Key && tag.Value !== undefined) {
-        tags[tag.Key] = tag.Value;
+        tags[tag.Key as string] = tag.Value as string;
       }
     }
 
     return {
-      name: response.Name ?? secretName,
-      lastRotatedDate: response.LastRotatedDate,
-      rotationEnabled: response.RotationEnabled,
+      name: (response.Name as string) ?? secretName,
+      lastRotatedDate: response.LastRotatedDate as Date | undefined,
+      rotationEnabled: response.RotationEnabled as boolean | undefined,
       rotationRules: response.RotationRules
-        ? { automaticallyAfterDays: response.RotationRules.AutomaticallyAfterDays }
+        ? {
+            automaticallyAfterDays: (response.RotationRules as Record<string, unknown>)
+              .AutomaticallyAfterDays as number | undefined,
+          }
         : undefined,
       tags,
     };
