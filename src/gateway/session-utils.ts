@@ -30,6 +30,7 @@ import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
 import {
   ARCHIVED_FILENAME_RE,
+  type ArchivedTranscriptInfo,
   countMessagesInTranscriptFile,
   isValidArchivedFileName,
   readFirstUserMessageFromFile,
@@ -931,7 +932,7 @@ export function listSessionsFromStore(params: {
     if (!candidateDirs.includes(storeDir)) {
       candidateDirs.push(storeDir);
     }
-    const archivedSet = new Map<string, typeof info>();
+    const archivedSet = new Map<string, ArchivedTranscriptInfo>();
 
     // Collect archived transcripts from all candidate directories, deduplicating by filename
     for (const sessionsDir of candidateDirs) {
