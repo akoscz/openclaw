@@ -1193,6 +1193,12 @@ See [Multi-Agent Sandbox & Tools](/tools/multi-agent-sandbox-tools) for preceden
       pruneAfter: "30d",
       maxEntries: 500,
       rotateBytes: "10mb",
+      pruneRules: {
+        subagent: "1h", // sub-agent sessions: prune after 1 hour
+        cronRun: "2h", // cron run sessions: prune after 2 hours (replaces cron.sessionRetention)
+        thread: "48h", // thread/topic sessions: prune after 48 hours
+        channel: false, // channel sessions: never prune
+      },
     },
     mainKey: "main", // legacy (runtime always uses "main")
     agentToAgent: { maxPingPongTurns: 5 },

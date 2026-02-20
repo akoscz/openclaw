@@ -11,6 +11,12 @@ import {
 } from "../../gateway/session-utils.fs.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
+  isChannelSessionKey,
+  isCronRunSessionKey,
+  isSubagentSessionKey,
+  isThreadSessionKey,
+} from "../../sessions/session-key-utils.js";
+import {
   deliveryContextFromSession,
   mergeDeliveryContext,
   normalizeDeliveryContext,
@@ -19,7 +25,11 @@ import {
 } from "../../utils/delivery-context.js";
 import { getFileMtimeMs, isCacheEnabled, resolveCacheTtlMs } from "../cache-utils.js";
 import { loadConfig } from "../config.js";
-import type { SessionMaintenanceConfig, SessionMaintenanceMode } from "../types.base.js";
+import type {
+  SessionMaintenanceConfig,
+  SessionMaintenanceMode,
+  SessionPruneRules,
+} from "../types.base.js";
 import { deriveSessionMetaPatch } from "./metadata.js";
 import { mergeSessionEntry, type SessionEntry } from "./types.js";
 
@@ -269,6 +279,7 @@ type ResolvedSessionMaintenanceConfig = {
   pruneAfterMs: number;
   maxEntries: number;
   rotateBytes: number;
+  pruneRules?: SessionPruneRules;
 };
 
 function resolvePruneAfterMs(maintenance?: SessionMaintenanceConfig): number {
@@ -306,36 +317,107 @@ export function resolveMaintenanceConfig(): ResolvedSessionMaintenanceConfig {
   } catch {
     // Config may not be available (e.g. in tests). Use defaults.
   }
+  // Merge cron.sessionRetention → pruneRules.cronRun (backward compat)
+  let pruneRules = maintenance?.pruneRules;
+  try {
+    const cronConfig = loadConfig().cron;
+    if (cronConfig?.sessionRetention !== undefined && pruneRules?.cronRun === undefined) {
+      pruneRules = { ...pruneRules, cronRun: cronConfig.sessionRetention };
+    }
+  } catch {
+    // Config may not be available.
+  }
+
   return {
     mode: maintenance?.mode ?? DEFAULT_SESSION_MAINTENANCE_MODE,
     pruneAfterMs: resolvePruneAfterMs(maintenance),
     maxEntries: maintenance?.maxEntries ?? DEFAULT_SESSION_MAX_ENTRIES,
     rotateBytes: resolveRotateBytes(maintenance),
+    pruneRules,
   };
+}
+
+/**
+ * Resolve the TTL (in ms) for a specific session key given per-type pruneRules.
+ * Returns `null` if the session type is explicitly exempted (`false`).
+ * Returns `defaultMs` if no rule matches.
+ */
+export function resolveSessionTTL(
+  sessionKey: string,
+  rules: SessionPruneRules | undefined,
+  defaultMs: number,
+): number | null {
+  if (!rules) {
+    return defaultMs;
+  }
+
+  let raw: string | number | false | undefined;
+
+  if (isSubagentSessionKey(sessionKey)) {
+    raw = rules.subagent;
+  } else if (isCronRunSessionKey(sessionKey)) {
+    raw = rules.cronRun;
+  } else if (isThreadSessionKey(sessionKey)) {
+    raw = rules.thread;
+  } else if (isChannelSessionKey(sessionKey)) {
+    raw = rules.channel;
+  }
+
+  if (raw === undefined) {
+    return defaultMs;
+  }
+  if (raw === false) {
+    return null;
+  } // exempt
+  if (typeof raw === "number") {
+    return raw;
+  }
+
+  try {
+    return parseDurationMs(raw.trim(), { defaultUnit: "h" });
+  } catch {
+    return defaultMs;
+  }
 }
 
 /**
  * Remove entries whose `updatedAt` is older than the configured threshold.
  * Entries without `updatedAt` are kept (cannot determine staleness).
  * Mutates `store` in-place.
+ *
+ * When `pruneRules` is provided, per-session-type TTL overrides are applied.
  */
 export function pruneStaleEntries(
   store: Record<string, SessionEntry>,
   overrideMaxAgeMs?: number,
-  opts: { log?: boolean; onPruned?: (params: { key: string; entry: SessionEntry }) => void } = {},
+  opts: {
+    log?: boolean;
+    onPruned?: (params: { key: string; entry: SessionEntry }) => void;
+    pruneRules?: SessionPruneRules;
+  } = {},
 ): number {
-  const maxAgeMs = overrideMaxAgeMs ?? resolveMaintenanceConfig().pruneAfterMs;
-  const cutoffMs = Date.now() - maxAgeMs;
+  const defaultMaxAgeMs = overrideMaxAgeMs ?? resolveMaintenanceConfig().pruneAfterMs;
+  const now = Date.now();
   let pruned = 0;
   for (const [key, entry] of Object.entries(store)) {
-    if (entry?.updatedAt != null && entry.updatedAt < cutoffMs) {
+    if (entry?.updatedAt == null) {
+      continue;
+    }
+
+    const ttlMs = resolveSessionTTL(key, opts.pruneRules, defaultMaxAgeMs);
+    if (ttlMs === null) {
+      continue;
+    } // exempt
+
+    const cutoffMs = now - ttlMs;
+    if (entry.updatedAt < cutoffMs) {
       opts.onPruned?.({ key, entry });
       delete store[key];
       pruned++;
     }
   }
   if (pruned > 0 && opts.log !== false) {
-    log.info("pruned stale session entries", { pruned, maxAgeMs });
+    log.info("pruned stale session entries", { pruned, defaultMaxAgeMs });
   }
   return pruned;
 }
@@ -493,7 +575,7 @@ type SaveSessionStoreOptions = {
   activeSessionKey?: string;
   /** Optional callback for warn-only maintenance. */
   onWarn?: (warning: SessionMaintenanceWarning) => void | Promise<void>;
-  /** Called for each session entry removed during pruning. */
+  /** Called for each pruned session entry so callers can fire lifecycle hooks. */
   onSessionPruned?: (key: string, entry: SessionEntry) => void;
 };
 
@@ -537,6 +619,7 @@ async function saveSessionStoreUnlocked(
       const prunedSessionFiles = new Map<string, string | undefined>();
       // Fire session_end hooks for pruned entries so plugins get lifecycle notification.
       pruneStaleEntries(store, maintenance.pruneAfterMs, {
+        pruneRules: maintenance.pruneRules,
         onPruned: ({ key, entry }) => {
           opts?.onSessionPruned?.(key, entry);
           if (!prunedSessionFiles.has(entry.sessionId) || entry.sessionFile) {
