@@ -662,6 +662,51 @@ export const OpenClawSchema = z
       })
       .strict()
       .optional(),
+    secrets: z
+      .object({
+        providers: z
+          .object({
+            gcp: z
+              .object({
+                project: z.string(),
+                cacheTtlSeconds: z.number().int().nonnegative().optional(),
+                credentialsFile: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+            aws: z
+              .object({
+                region: z.string(),
+                cacheTtlSeconds: z.number().int().nonnegative().optional(),
+                profile: z.string().optional(),
+                credentialsFile: z.string().optional(),
+                roleArn: z.string().optional(),
+                externalId: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+            env: z.object({}).strict().optional(),
+            keyring: z
+              .object({
+                account: z.string().optional(),
+                keychainPath: z.string().optional(),
+                keychainPassword: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+            "1password": z
+              .object({
+                vault: z.string().optional(),
+                field: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
