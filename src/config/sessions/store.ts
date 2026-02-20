@@ -493,6 +493,8 @@ type SaveSessionStoreOptions = {
   activeSessionKey?: string;
   /** Optional callback for warn-only maintenance. */
   onWarn?: (warning: SessionMaintenanceWarning) => void | Promise<void>;
+  /** Called for each session entry removed during pruning. */
+  onSessionPruned?: (key: string, entry: SessionEntry) => void;
 };
 
 async function saveSessionStoreUnlocked(
@@ -533,8 +535,10 @@ async function saveSessionStoreUnlocked(
     } else {
       // Prune stale entries and cap total count before serializing.
       const prunedSessionFiles = new Map<string, string | undefined>();
+      // Fire session_end hooks for pruned entries so plugins get lifecycle notification.
       pruneStaleEntries(store, maintenance.pruneAfterMs, {
-        onPruned: ({ entry }) => {
+        onPruned: ({ key, entry }) => {
+          opts?.onSessionPruned?.(key, entry);
           if (!prunedSessionFiles.has(entry.sessionId) || entry.sessionFile) {
             prunedSessionFiles.set(entry.sessionId, entry.sessionFile);
           }

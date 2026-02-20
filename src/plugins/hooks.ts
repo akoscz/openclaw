@@ -35,7 +35,9 @@ import type {
   PluginHookRegistration,
   PluginHookSessionContext,
   PluginHookSessionEndEvent,
+  PluginHookSessionResumeEvent,
   PluginHookSessionStartEvent,
+  PluginHookSessionSuspendEvent,
   PluginHookToolContext,
   PluginHookToolResultPersistContext,
   PluginHookToolResultPersistEvent,
@@ -75,6 +77,8 @@ export type {
   PluginHookBeforeMessageWriteResult,
   PluginHookSessionContext,
   PluginHookSessionStartEvent,
+  PluginHookSessionResumeEvent,
+  PluginHookSessionSuspendEvent,
   PluginHookSessionEndEvent,
   PluginHookGatewayContext,
   PluginHookGatewayStartEvent,
@@ -550,17 +554,48 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
 
   /**
    * Run session_start hook.
-   * Runs in parallel (fire-and-forget).
+   * Allows plugins to inject context and system prompt at session start.
    */
   async function runSessionStart(
     event: PluginHookSessionStartEvent,
     ctx: PluginHookSessionContext,
+  ): Promise<PluginHookBeforePromptBuildResult | undefined> {
+    return runModifyingHook<"session_start", PluginHookBeforePromptBuildResult>(
+      "session_start",
+      event,
+      ctx,
+      mergeBeforePromptBuild,
+    );
+  }
+
+  /**
+   * Run session_resume hook.
+   * Fired when an existing session is reactivated after a gateway restart.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionResume(
+    event: PluginHookSessionResumeEvent,
+    ctx: PluginHookSessionContext,
   ): Promise<void> {
-    return runVoidHook("session_start", event, ctx);
+    return runVoidHook("session_resume", event, ctx);
+  }
+
+  /**
+   * Run session_suspend hook.
+   * Fired for all active sessions when the gateway is shutting down.
+   * Sessions may be resumed after restart.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionSuspend(
+    event: PluginHookSessionSuspendEvent,
+    ctx: PluginHookSessionContext,
+  ): Promise<void> {
+    return runVoidHook("session_suspend", event, ctx);
   }
 
   /**
    * Run session_end hook.
+   * Fired when a session is truly over (replaced by /new, idle timeout, or pruned).
    * Runs in parallel (fire-and-forget).
    */
   async function runSessionEnd(
@@ -637,6 +672,8 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     runBeforeMessageWrite,
     // Session hooks
     runSessionStart,
+    runSessionResume,
+    runSessionSuspend,
     runSessionEnd,
     // Gateway hooks
     runGatewayStart,
