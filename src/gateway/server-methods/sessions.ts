@@ -217,7 +217,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         }
 
         // Use shared utility to discover candidate directories
-        const candidateDirs = resolveArchivedSessionCandidateDirs(cfg);
+        const candidateDirs = resolveArchivedSessionCandidateDirs();
 
         let found = false;
         for (const dir of candidateDirs) {
