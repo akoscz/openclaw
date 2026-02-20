@@ -169,6 +169,11 @@ function runAgentAttempt(params: {
     authProfileIdSource: authProfileId ? params.sessionEntry?.authProfileOverrideSource : undefined,
     thinkLevel: params.resolvedThinkLevel,
     verboseLevel: params.resolvedVerboseLevel,
+    // Enable reasoning streaming when thinking is active so subscribers emit thinking events.
+    reasoningLevel:
+      params.resolvedThinkLevel && params.resolvedThinkLevel !== "off" ? "stream" : undefined,
+    onReasoningStream:
+      params.resolvedThinkLevel && params.resolvedThinkLevel !== "off" ? () => {} : undefined,
     timeoutMs: params.timeoutMs,
     runId: params.runId,
     lane: params.opts.lane,
