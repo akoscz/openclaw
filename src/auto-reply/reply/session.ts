@@ -30,6 +30,7 @@ import type { TtsAutoMode } from "../../config/types.tts.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import { deliverSessionMaintenanceWarning } from "../../infra/session-maintenance-warning.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { countTranscriptMessages } from "../../infra/session-message-count.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { normalizeMainKey } from "../../routing/session-key.js";
 import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.js";
@@ -487,6 +488,7 @@ export async function initSessionState(params: {
   sessionEntry = {
     ...baseEntry,
     sessionId,
+    createdAt: isNewSession ? Date.now() : (baseEntry?.createdAt ?? Date.now()),
     updatedAt: Date.now(),
     systemSent,
     abortedLastRun,
@@ -636,6 +638,26 @@ export async function initSessionState(params: {
           entry: sessionEntry,
           warning,
         }),
+      onSessionPruned: (prunedKey, prunedEntry) => {
+        const runner = getGlobalHookRunner();
+        if (runner?.hasHooks("session_end")) {
+          const msgCount = countTranscriptMessages(prunedEntry.sessionFile);
+          const duration = prunedEntry.createdAt ? Date.now() - prunedEntry.createdAt : undefined;
+          void runner
+            .runSessionEnd(
+              {
+                sessionId: prunedEntry.sessionId,
+                messageCount: msgCount,
+                durationMs: duration,
+              },
+              {
+                sessionId: prunedEntry.sessionId,
+                agentId: resolveSessionAgentId({ sessionKey: prunedKey, config: cfg }),
+              },
+            )
+            .catch(() => {});
+        }
+      },
     },
   );
 
@@ -684,12 +706,19 @@ export async function initSessionState(params: {
     // If replacing an existing session, fire session_end for the old one
     if (previousSessionEntry?.sessionId && previousSessionEntry.sessionId !== effectiveSessionId) {
       if (hookRunner.hasHooks("session_end")) {
+        const prevMessageCount = countTranscriptMessages(previousSessionEntry.sessionFile);
+        const prevDurationMs = previousSessionEntry.createdAt
+          ? Date.now() - previousSessionEntry.createdAt
+          : undefined;
         const payload = buildSessionEndHookPayload({
           sessionId: previousSessionEntry.sessionId,
           sessionKey,
           cfg,
+          messageCount: prevMessageCount,
         });
-        void hookRunner.runSessionEnd(payload.event, payload.context).catch(() => {});
+        void hookRunner
+          .runSessionEnd({ ...payload.event, durationMs: prevDurationMs }, payload.context)
+          .catch(() => {});
       }
     }
 

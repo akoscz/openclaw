@@ -342,6 +342,8 @@ type SaveSessionStoreOptions = {
   onMaintenanceApplied?: (report: SessionMaintenanceApplyReport) => void | Promise<void>;
   /** Optional overrides used by maintenance commands. */
   maintenanceOverride?: Partial<ResolvedSessionMaintenanceConfig>;
+  /** Called for each session entry removed during pruning. */
+  onSessionPruned?: (key: string, entry: SessionEntry) => void;
 };
 
 function updateSessionStoreWriteCaches(params: {
@@ -474,8 +476,10 @@ async function saveSessionStoreUnlocked(
     } else {
       // Prune stale entries and cap total count before serializing.
       const removedSessionFiles = new Map<string, string | undefined>();
+      // Fire session_end hooks for pruned entries so plugins get lifecycle notification.
       const pruned = pruneStaleEntries(store, maintenance.pruneAfterMs, {
-        onPruned: ({ entry }) => {
+        onPruned: ({ key, entry }) => {
+          opts?.onSessionPruned?.(key, entry);
           rememberRemovedSessionFile(removedSessionFiles, entry);
         },
       });
