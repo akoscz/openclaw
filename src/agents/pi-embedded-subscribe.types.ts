@@ -12,6 +12,10 @@ export type SubscribeEmbeddedPiSessionParams = {
   session: AgentSession;
   runId: string;
   hookRunner?: HookRunner;
+  /** Session context for plugin hooks (compaction, agent lifecycle). */
+  agentId?: string;
+  sessionKey?: string;
+  workspaceDir?: string;
   verboseLevel?: VerboseLevel;
   reasoningMode?: ReasoningLevel;
   toolResultFormat?: ToolResultFormat;

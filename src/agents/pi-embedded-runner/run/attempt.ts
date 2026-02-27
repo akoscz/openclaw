@@ -2187,6 +2187,8 @@ export async function runEmbeddedAttempt(
         session: activeSession,
         runId: params.runId,
         hookRunner: getGlobalHookRunner() ?? undefined,
+        agentId: sessionAgentId,
+        workspaceDir: effectiveWorkspace,
         verboseLevel: params.verboseLevel,
         reasoningMode: params.reasoningLevel ?? "off",
         toolResultFormat: params.toolResultFormat,
