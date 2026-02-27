@@ -1,3 +1,4 @@
+import type { AgentCommandOpts } from "./agent/types.js";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
 import { resolveAcpAgentPolicyError, resolveAcpDispatchPolicyError } from "../acp/policy.js";
 import { toAcpRuntimeError } from "../acp/runtime/errors.js";
@@ -71,7 +72,6 @@ import { deliverAgentCommandResult } from "./agent/delivery.js";
 import { resolveAgentRunContext } from "./agent/run-context.js";
 import { updateSessionStoreAfterAgentRun } from "./agent/session-store.js";
 import { resolveSession } from "./agent/session.js";
-import type { AgentCommandOpts } from "./agent/types.js";
 
 type PersistSessionEntryParams = {
   sessionStore: Record<string, SessionEntry>;
@@ -208,6 +208,11 @@ function runAgentAttempt(params: {
     authProfileIdSource: authProfileId ? params.sessionEntry?.authProfileOverrideSource : undefined,
     thinkLevel: params.resolvedThinkLevel,
     verboseLevel: params.resolvedVerboseLevel,
+    // Enable reasoning streaming when thinking is active so subscribers emit thinking events.
+    reasoningLevel:
+      params.resolvedThinkLevel && params.resolvedThinkLevel !== "off" ? "stream" : undefined,
+    onReasoningStream:
+      params.resolvedThinkLevel && params.resolvedThinkLevel !== "off" ? () => {} : undefined,
     timeoutMs: params.timeoutMs,
     runId: params.runId,
     lane: params.opts.lane,

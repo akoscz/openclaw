@@ -1,5 +1,8 @@
-import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
+import type { AuthRateLimiter } from "./auth-rate-limit.js";
+import type { ResolvedGatewayAuth } from "./auth.js";
+import { readString } from "../acp/meta.js";
 import { createDefaultDeps } from "../cli/deps.js";
 import { agentCommand } from "../commands/agent.js";
 import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
@@ -10,8 +13,6 @@ import {
   buildAgentMessageFromConversationEntries,
   type ConversationEntry,
 } from "./agent-prompt.js";
-import type { AuthRateLimiter } from "./auth-rate-limit.js";
-import type { ResolvedGatewayAuth } from "./auth.js";
 import { sendJson, setSseHeaders, writeDone } from "./http-common.js";
 import { handleGatewayPostJsonEndpoint } from "./http-endpoint-helpers.js";
 import { resolveAgentIdForRequest, resolveSessionKey } from "./http-utils.js";
@@ -45,6 +46,7 @@ function buildAgentCommandInput(params: {
   prompt: { message: string; extraSystemPrompt?: string };
   sessionKey: string;
   runId: string;
+  thinking?: string;
 }) {
   return {
     message: params.prompt.message,
@@ -54,6 +56,7 @@ function buildAgentCommandInput(params: {
     deliver: false as const,
     messageChannel: "webchat" as const,
     bestEffortDeliver: false as const,
+    thinking: params.thinking,
   };
 }
 
@@ -224,6 +227,16 @@ export async function handleOpenAiHttpRequest(
   const model = typeof payload.model === "string" ? payload.model : "openclaw";
   const user = typeof payload.user === "string" ? payload.user : undefined;
 
+  // Extract thinking/reasoning level from request.
+  // Supports: reasoning_effort (OpenAI standard), thinking (custom), or X-Thinking-Level header.
+  const thinkingRaw =
+    readString(payload, ["reasoning_effort"]) ||
+    readString(payload, ["thinking"]) ||
+    (typeof req.headers["x-thinking-level"] === "string"
+      ? req.headers["x-thinking-level"]
+      : undefined);
+  const thinking = thinkingRaw ? thinkingRaw.trim().toLowerCase() || undefined : undefined;
+
   const agentId = resolveAgentIdForRequest({ req, model });
   const sessionKey = resolveOpenAiSessionKey({ req, agentId, user });
   const prompt = buildAgentPrompt(payload.messages);
@@ -243,6 +256,7 @@ export async function handleOpenAiHttpRequest(
     prompt,
     sessionKey,
     runId,
+    thinking,
   });
 
   if (!stream) {
@@ -285,6 +299,39 @@ export async function handleOpenAiHttpRequest(
       return;
     }
     if (closed) {
+      return;
+    }
+
+    if (evt.stream === "thinking") {
+      const delta = typeof evt.data?.delta === "string" ? evt.data.delta : "";
+      if (!delta) {
+        return;
+      }
+
+      if (!wroteRole) {
+        wroteRole = true;
+        writeSse(res, {
+          id: runId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [{ index: 0, delta: { role: "assistant" } }],
+        });
+      }
+
+      writeSse(res, {
+        id: runId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: delta },
+            finish_reason: null,
+          },
+        ],
+      });
       return;
     }
 

@@ -477,6 +477,55 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
 
       {
         agentCommand.mockClear();
+      }
+
+      {
+        agentCommand.mockReset();
+        agentCommand.mockImplementationOnce((async (opts: unknown) => {
+          const runId = (opts as { runId?: string } | undefined)?.runId ?? "";
+          emitAgentEvent({
+            runId,
+            stream: "thinking",
+            data: { text: "let me think", delta: "let me think" },
+          });
+          emitAgentEvent({
+            runId,
+            stream: "thinking",
+            data: { text: "let me think about this", delta: " about this" },
+          });
+          emitAgentEvent({ runId, stream: "assistant", data: { delta: "Here's my answer" } });
+          return { payloads: [{ text: "Here's my answer" }] } as never;
+        }) as never);
+
+        const thinkingRes = await postChatCompletions(port, {
+          stream: true,
+          model: "openclaw",
+          messages: [{ role: "user", content: "think about this" }],
+        });
+        expect(thinkingRes.status).toBe(200);
+        const thinkingText = await thinkingRes.text();
+        const thinkingData = parseSseDataLines(thinkingText);
+        const thinkingChunks = thinkingData
+          .filter((d) => d !== "[DONE]")
+          .map((d) => JSON.parse(d) as Record<string, unknown>);
+
+        const reasoningContent = thinkingChunks
+          .flatMap((c) => (c.choices as Array<Record<string, unknown>> | undefined) ?? [])
+          .map((choice) => (choice.delta as Record<string, unknown> | undefined)?.reasoning_content)
+          .filter((v): v is string => typeof v === "string")
+          .join("");
+        expect(reasoningContent).toBe("let me think about this");
+
+        const assistantContent = thinkingChunks
+          .flatMap((c) => (c.choices as Array<Record<string, unknown>> | undefined) ?? [])
+          .map((choice) => (choice.delta as Record<string, unknown> | undefined)?.content)
+          .filter((v): v is string => typeof v === "string")
+          .join("");
+        expect(assistantContent).toBe("Here's my answer");
+      }
+
+      {
+        agentCommand.mockReset();
         agentCommand.mockResolvedValueOnce({
           payloads: [{ text: "hello" }],
         } as never);
