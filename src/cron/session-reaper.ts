@@ -4,6 +4,12 @@
  *
  * Pattern: sessions keyed as `...:cron:<jobId>:run:<uuid>` are ephemeral
  * run records. The base session (`...:cron:<jobId>`) is kept as-is.
+ *
+ * @deprecated Cron run session pruning is now handled by the unified session
+ * maintenance system via `session.maintenance.pruneRules.cronRun`.
+ * The `cron.sessionRetention` config is automatically migrated to
+ * `pruneRules.cronRun` by `resolveMaintenanceConfig()`.
+ * This module is kept for backward compatibility.
  */
 
 import path from "node:path";

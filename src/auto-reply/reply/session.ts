@@ -487,6 +487,35 @@ export async function initSessionState(params: {
           entry: sessionEntry,
           warning,
         }),
+      onSessionPruned: (prunedKey, prunedEntry) => {
+        // Archive transcript files so they don't remain orphaned on disk.
+        archiveSessionTranscripts({
+          sessionId: prunedEntry.sessionId,
+          storePath,
+          sessionFile: prunedEntry.sessionFile,
+          agentId: resolveSessionAgentId({ sessionKey: prunedKey, config: cfg }),
+          reason: "deleted",
+        });
+
+        const runner = getGlobalHookRunner();
+        if (runner?.hasHooks("session_end")) {
+          const msgCount = 0; // TODO: count transcript messages
+          const duration = (prunedEntry as any).createdAt ? Date.now() - (prunedEntry as any).createdAt : undefined;
+          void runner
+            .runSessionEnd(
+              {
+                sessionId: prunedEntry.sessionId,
+                messageCount: msgCount,
+                durationMs: duration,
+              },
+              {
+                sessionId: prunedEntry.sessionId,
+                agentId: resolveSessionAgentId({ sessionKey: prunedKey, config: cfg }),
+              },
+            )
+            .catch(() => {});
+        }
+      },
     },
   );
 

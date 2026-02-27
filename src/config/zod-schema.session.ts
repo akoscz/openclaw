@@ -80,6 +80,15 @@ export const SessionSchema = z
         resetArchiveRetention: z.union([z.string(), z.number(), z.literal(false)]).optional(),
         maxDiskBytes: z.union([z.string(), z.number()]).optional(),
         highWaterBytes: z.union([z.string(), z.number()]).optional(),
+        pruneRules: z
+          .object({
+            subagent: z.union([z.string(), z.number().nonnegative(), z.literal(false)]).optional(),
+            cronRun: z.union([z.string(), z.number().nonnegative(), z.literal(false)]).optional(),
+            thread: z.union([z.string(), z.number().nonnegative(), z.literal(false)]).optional(),
+            channel: z.union([z.string(), z.number().nonnegative(), z.literal(false)]).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .superRefine((val, ctx) => {
