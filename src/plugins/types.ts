@@ -676,6 +676,8 @@ export type PluginHookSessionStartEvent = {
   sessionId: string;
   sessionKey?: string;
   resumedFrom?: string;
+  /** Initial user prompt/message that started the session (if available) */
+  prompt?: string;
 };
 
 // session_resume hook — existing session reactivated after gateway restart
@@ -860,7 +862,7 @@ export type PluginHookHandlerMap = {
   session_start: (
     event: PluginHookSessionStartEvent,
     ctx: PluginHookSessionContext,
-  ) => Promise<void> | void;
+  ) => Promise<PluginHookBeforePromptBuildResult | void> | PluginHookBeforePromptBuildResult | void;
   session_resume: (
     event: PluginHookSessionResumeEvent,
     ctx: PluginHookSessionContext,
