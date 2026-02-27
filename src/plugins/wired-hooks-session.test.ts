@@ -42,7 +42,7 @@ describe("session hook runner methods", () => {
 
   it("runSessionResume invokes registered session_resume hooks", async () => {
     const handler = vi.fn();
-    const registry = createMockRegistry([{ hookName: "session_resume", handler }]);
+    const registry = createMockPluginRegistry([{ hookName: "session_resume", handler }]);
     const runner = createHookRunner(registry);
 
     await runner.runSessionResume(
@@ -58,7 +58,7 @@ describe("session hook runner methods", () => {
 
   it("runSessionSuspend invokes registered session_suspend hooks", async () => {
     const handler = vi.fn();
-    const registry = createMockRegistry([{ hookName: "session_suspend", handler }]);
+    const registry = createMockPluginRegistry([{ hookName: "session_suspend", handler }]);
     const runner = createHookRunner(registry);
 
     await runner.runSessionSuspend(

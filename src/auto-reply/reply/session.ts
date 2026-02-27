@@ -104,6 +104,7 @@ export type SessionInitResult = {
   isGroup: boolean;
   bodyStripped?: string;
   triggerBodyNormalized: string;
+  sessionStartHookResult?: { systemPrompt?: string; prependContext?: string };
 };
 
 /**
@@ -569,6 +570,9 @@ export async function initSessionState(params: {
     }
   }
 
+  // Declare sessionStartHookResult in outer scope so it's available in return statement
+  let sessionStartHookResult: { systemPrompt?: string; prependContext?: string } | undefined;
+
   if (hookRunner && isNewSession) {
     const effectiveSessionId = sessionId ?? "";
 
@@ -597,18 +601,23 @@ export async function initSessionState(params: {
 
     // Fire session_start for the new session
     if (hookRunner.hasHooks("session_start")) {
-      void hookRunner
+      // Include initial prompt if available (skip empty reset triggers like bare "/new")
+      const initialPrompt =
+        bodyStripped !== undefined ? bodyStripped || undefined : triggerBodyNormalized || undefined;
+
+      sessionStartHookResult = await hookRunner
         .runSessionStart(
           {
             sessionId: effectiveSessionId,
             resumedFrom: previousSessionEntry?.sessionId,
+            prompt: initialPrompt,
           },
           {
             sessionId: effectiveSessionId,
             agentId: resolveSessionAgentId({ sessionKey, config: cfg }),
           },
         )
-        .catch(() => {});
+        .catch(() => undefined);
     }
   }
 
@@ -629,5 +638,6 @@ export async function initSessionState(params: {
     isGroup,
     bodyStripped,
     triggerBodyNormalized,
+    sessionStartHookResult,
   };
 }

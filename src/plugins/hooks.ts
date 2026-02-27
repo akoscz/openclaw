@@ -599,13 +599,18 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
 
   /**
    * Run session_start hook.
-   * Runs in parallel (fire-and-forget).
+   * Allows plugins to inject context and system prompt at session start.
    */
   async function runSessionStart(
     event: PluginHookSessionStartEvent,
     ctx: PluginHookSessionContext,
-  ): Promise<void> {
-    return runVoidHook("session_start", event, ctx);
+  ): Promise<PluginHookBeforePromptBuildResult | undefined> {
+    return runModifyingHook<"session_start", PluginHookBeforePromptBuildResult>(
+      "session_start",
+      event,
+      ctx,
+      mergeBeforePromptBuild,
+    );
   }
 
   /**

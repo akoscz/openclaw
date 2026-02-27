@@ -935,7 +935,7 @@ export async function startGatewayServer(
         if (hookRunner?.hasHooks("session_suspend")) {
           try {
             const cfg = loadConfig();
-            const storePath = resolveStorePath(cfg);
+            const storePath = resolveStorePath(cfg.session?.store);
             const store = loadSessionStore(storePath);
             const now = Date.now();
             const suspendPromises: Promise<void>[] = [];
