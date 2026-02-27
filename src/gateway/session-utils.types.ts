@@ -17,6 +17,12 @@ export type GatewaySessionRow = {
   key: string;
   spawnedBy?: string;
   kind: "direct" | "group" | "global" | "unknown";
+  /** Present for archived (pruned/reset) sessions. */
+  status?: "archived";
+  /** ISO timestamp when the session was archived. */
+  archivedAt?: string;
+  /** Number of user/assistant messages (for archived sessions). */
+  messageCount?: number;
   label?: string;
   displayName?: string;
   derivedTitle?: string;
