@@ -1377,6 +1377,12 @@ See [Multi-Agent Sandbox & Tools](/tools/multi-agent-sandbox-tools) for preceden
       resetArchiveRetention: "30d", // duration or false
       maxDiskBytes: "500mb", // optional hard budget
       highWaterBytes: "400mb", // optional cleanup target
+      pruneRules: {
+        subagent: "1h", // sub-agent sessions: prune after 1 hour
+        cronRun: "2h", // cron run sessions: prune after 2 hours (replaces cron.sessionRetention)
+        thread: "48h", // thread/topic sessions: prune after 48 hours
+        channel: false, // channel sessions: never prune
+      },
     },
     threadBindings: {
       enabled: true,
