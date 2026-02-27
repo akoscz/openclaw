@@ -1,6 +1,7 @@
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { confirm, select, text } from "@clack/prompts";
+import { readConfigFileSnapshotForWrite } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { SecretProviderConfig, SecretRef, SecretRefSource } from "../config/types.secrets.js";
 import { isSafeExecutableValue } from "../infra/exec-safety.js";
@@ -719,7 +720,7 @@ export async function runSecretsConfigureInteractive(
 
   const env = params.env ?? process.env;
   const io = createSecretsConfigIO({ env });
-  const { snapshot } = await io.readConfigFileSnapshotForWrite();
+  const { snapshot } = await readConfigFileSnapshotForWrite();
   if (!snapshot.valid) {
     throw new Error("Cannot run interactive secrets configure because config is invalid.");
   }

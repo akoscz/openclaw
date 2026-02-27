@@ -103,7 +103,7 @@ describe("config io write", () => {
     });
 
     const input = createGatewayCommandsInput();
-    await io.writeConfigFile(input, { unsetPaths: params.unsetPaths });
+    await io.writeConfigFile(input);
 
     expectInputOwnerDisplayUnchanged(input);
     expect((await readPersistedCommands(configPath))?.ownerDisplay).toBe("hash");
@@ -171,7 +171,7 @@ describe("config io write", () => {
         delete (next.commands as Record<string, unknown>).ownerDisplay;
       }
 
-      await io.writeConfigFile(next, { unsetPaths: [["commands", "ownerDisplay"]] });
+      await io.writeConfigFile(next);
 
       const persisted = JSON.parse(await fs.readFile(configPath, "utf-8")) as {
         commands?: Record<string, unknown>;
