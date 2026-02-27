@@ -1,5 +1,5 @@
 /**
- * Test: session_start & session_end hook wiring
+ * Test: session lifecycle hook wiring (start, resume, suspend, end)
  *
  * Tests the hook runner methods directly since session init is deeply integrated.
  */
@@ -36,6 +36,38 @@ describe("session hook runner methods", () => {
 
     expect(handler).toHaveBeenCalledWith(
       { sessionId: "abc-123", messageCount: 42 },
+      { sessionId: "abc-123", agentId: "main" },
+    );
+  });
+
+  it("runSessionResume invokes registered session_resume hooks", async () => {
+    const handler = vi.fn();
+    const registry = createMockPluginRegistry([{ hookName: "session_resume", handler }]);
+    const runner = createHookRunner(registry);
+
+    await runner.runSessionResume(
+      { sessionId: "abc-123", suspendedForMs: 5000 },
+      { sessionId: "abc-123", agentId: "main" },
+    );
+
+    expect(handler).toHaveBeenCalledWith(
+      { sessionId: "abc-123", suspendedForMs: 5000 },
+      { sessionId: "abc-123", agentId: "main" },
+    );
+  });
+
+  it("runSessionSuspend invokes registered session_suspend hooks", async () => {
+    const handler = vi.fn();
+    const registry = createMockPluginRegistry([{ hookName: "session_suspend", handler }]);
+    const runner = createHookRunner(registry);
+
+    await runner.runSessionSuspend(
+      { sessionId: "abc-123", messageCount: 10, durationMs: 60000, reason: "gateway stopping" },
+      { sessionId: "abc-123", agentId: "main" },
+    );
+
+    expect(handler).toHaveBeenCalledWith(
+      { sessionId: "abc-123", messageCount: 10, durationMs: 60000, reason: "gateway stopping" },
       { sessionId: "abc-123", agentId: "main" },
     );
   });
