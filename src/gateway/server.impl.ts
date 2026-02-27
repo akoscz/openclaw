@@ -23,7 +23,7 @@ import {
   writeConfigFile,
 } from "../config/config.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
-import { resolveMainSessionKey } from "../config/sessions.js";
+import { loadSessionStore, resolveMainSessionKey, resolveStorePath, updateSessionStore } from "../config/sessions.js";
 import { clearAgentRunContext, onAgentEvent } from "../infra/agent-events.js";
 import {
   ensureControlUiAssetsBuilt,
@@ -38,6 +38,7 @@ import { startHeartbeatRunner, type HeartbeatRunner } from "../infra/heartbeat-r
 import { getMachineDisplayName } from "../infra/machine-name.js";
 import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { setGatewaySigusr1RestartPolicy, setPreRestartDeferralCheck } from "../infra/restart.js";
+import { countTranscriptMessages } from "../infra/session-message-count.js";
 import {
   primeRemoteSkillsCache,
   refreshRemoteBinsForConnectedNodes,
@@ -926,6 +927,58 @@ export async function startGatewayServer(
             );
           } catch (err) {
             log.warn(`gateway_stop hook failed: ${String(err)}`);
+          }
+        }
+
+        // Fire session_suspend for all active sessions and stamp suspendedAt.
+        // Sessions may be resumed after gateway restart (unlike session_end which is final).
+        if (hookRunner?.hasHooks("session_suspend")) {
+          try {
+            const cfg = loadConfig();
+            const storePath = resolveStorePath(cfg);
+            const store = loadSessionStore(storePath);
+            const now = Date.now();
+            const suspendPromises: Promise<void>[] = [];
+            for (const [sessionKey, entry] of Object.entries(store)) {
+              if (!entry?.sessionId) {
+                continue;
+              }
+              const durationMs = entry.createdAt ? now - entry.createdAt : undefined;
+              suspendPromises.push(
+                hookRunner
+                  .runSessionSuspend(
+                    {
+                      sessionId: entry.sessionId,
+                      messageCount: countTranscriptMessages(entry.sessionFile),
+                      durationMs,
+                      reason: opts?.reason ?? "gateway stopping",
+                    },
+                    {
+                      sessionId: entry.sessionId,
+                      agentId: resolveSessionAgentId({ sessionKey, config: cfg }),
+                    },
+                  )
+                  .catch((err) => {
+                    log.warn(`session_suspend hook failed for ${entry.sessionId}: ${String(err)}`);
+                  }),
+              );
+            }
+            await Promise.all(suspendPromises);
+
+            // Stamp suspendedAt on all sessions so session_resume can compute suspendedForMs
+            await updateSessionStore(
+              storePath,
+              (currentStore) => {
+                for (const entry of Object.values(currentStore)) {
+                  if (entry?.sessionId) {
+                    entry.suspendedAt = now;
+                  }
+                }
+              },
+              { skipMaintenance: true },
+            );
+          } catch (err) {
+            log.warn(`session_suspend hooks on shutdown failed: ${String(err)}`);
           }
         }
       }

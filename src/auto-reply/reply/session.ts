@@ -358,10 +358,15 @@ export async function initSessionState(params: {
   const lastTo = deliveryFields.lastTo ?? lastToRaw;
   const lastAccountId = deliveryFields.lastAccountId ?? lastAccountIdRaw;
   const lastThreadId = deliveryFields.lastThreadId ?? lastThreadIdRaw;
+  // Capture suspendedAt before clearing — needed for session_resume hook below
+  const wasSuspendedAt = baseEntry?.suspendedAt;
   sessionEntry = {
     ...baseEntry,
     sessionId,
     createdAt: isNewSession ? Date.now() : (baseEntry?.createdAt ?? Date.now()),
+    // Clear suspendedAt on resume — it was stamped during gateway shutdown
+    // and session_resume will fire below if it was set.
+    suspendedAt: undefined,
     updatedAt: Date.now(),
     systemSent,
     abortedLastRun,
@@ -542,6 +547,28 @@ export async function initSessionState(params: {
 
   // Run session plugin hooks (fire-and-forget)
   const hookRunner = getGlobalHookRunner();
+
+  // Fire session_resume when an existing session is reactivated after a gateway restart.
+  // We detect this by checking if suspendedAt was stamped during the previous shutdown.
+  // suspendedAt was already cleared in the entry above so it won't fire again.
+  if (hookRunner && !isNewSession && wasSuspendedAt) {
+    const suspendedForMs = Date.now() - wasSuspendedAt;
+    if (hookRunner.hasHooks("session_resume")) {
+      void hookRunner
+        .runSessionResume(
+          {
+            sessionId: sessionEntry.sessionId,
+            suspendedForMs,
+          },
+          {
+            sessionId: sessionEntry.sessionId,
+            agentId: resolveSessionAgentId({ sessionKey, config: cfg }),
+          },
+        )
+        .catch(() => {});
+    }
+  }
+
   if (hookRunner && isNewSession) {
     const effectiveSessionId = sessionId ?? "";
 
