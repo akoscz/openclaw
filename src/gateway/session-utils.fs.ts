@@ -173,6 +173,78 @@ function canonicalizePathForComparison(filePath: string): string {
   }
 }
 
+export type ArchivedTranscriptInfo = {
+  filePath: string;
+  sessionId: string;
+  reason: ArchiveFileReason;
+  archivedAt: string;
+  fileSize: number;
+};
+
+/**
+ * Regex to match archived transcript filenames.
+ * Pattern: `sess-<id>.jsonl.<reason>.<iso-timestamp>` or with topic suffix.
+ * The ISO timestamp uses `-` instead of `:` (from `toISOString().replaceAll(":", "-")`).
+ */
+export const ARCHIVED_FILENAME_RE =
+  /^(sess-[a-zA-Z0-9_-]+)\.jsonl\.(deleted|reset|bak)\.([\dT._+-]+Z?)$/;
+
+/**
+ * Scan a sessions directory for archived transcript files.
+ * Returns metadata parsed from filenames — does not read file contents.
+ */
+export function scanArchivedTranscripts(sessionsDir: string): ArchivedTranscriptInfo[] {
+  if (!fs.existsSync(sessionsDir)) {
+    return [];
+  }
+  const results: ArchivedTranscriptInfo[] = [];
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(sessionsDir);
+  } catch {
+    return [];
+  }
+  for (const name of entries) {
+    const match = ARCHIVED_FILENAME_RE.exec(name);
+    if (!match) {
+      continue;
+    }
+    const [, sessionId, reason, rawTimestamp] = match;
+    const filePath = path.join(sessionsDir, name);
+    let fileSize = 0;
+    try {
+      const stat = fs.statSync(filePath);
+      fileSize = stat.size;
+    } catch {
+      continue; // skip files we can't stat
+    }
+    // Restore colons from the escaped timestamp (hyphens after T are time separators)
+    const archivedAt = rawTimestamp.replace(
+      /(\d{4}-\d{2}-\d{2}T)(\d{2})-(\d{2})-(\d{2})/,
+      "$1$2:$3:$4",
+    );
+    results.push({
+      filePath,
+      sessionId,
+      reason: reason as ArchiveFileReason,
+      archivedAt,
+      fileSize,
+    });
+  }
+  return results;
+}
+
+/**
+ * Validate that a filename is safe for archived transcript resolution.
+ * Returns true if the filename contains no path separators and matches the archived filename pattern.
+ */
+export function isValidArchivedFileName(fileName: string): boolean {
+  if (fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) {
+    return false;
+  }
+  return ARCHIVED_FILENAME_RE.test(fileName);
+}
+
 export function archiveFileOnDisk(filePath: string, reason: ArchiveFileReason): string {
   const ts = formatSessionArchiveTimestamp();
   const archived = `${filePath}.${reason}.${ts}`;
@@ -477,6 +549,98 @@ export function readFirstUserMessageFromTranscript(
   });
 }
 
+/**
+ * Count messages in a transcript file using streaming approach to avoid loading entire file.
+ * Returns count of user and assistant messages.
+ */
+export function countMessagesInTranscriptFile(filePath: string): number {
+  let fd: number | null = null;
+  let count = 0;
+  try {
+    fd = fs.openSync(filePath, "r");
+    const bufferSize = 64 * 1024; // 64KB buffer
+    const buf = Buffer.alloc(bufferSize);
+    let leftover = "";
+    let bytesRead = 0;
+
+    do {
+      bytesRead = fs.readSync(fd, buf, 0, bufferSize, null);
+      if (bytesRead === 0) {
+        break;
+      }
+
+      const chunk = leftover + buf.toString("utf-8", 0, bytesRead);
+      const lines = chunk.split("\n");
+
+      // Keep the last incomplete line for next iteration
+      leftover = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) {
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(line);
+          const role = parsed?.role ?? parsed?.message?.role;
+          if (role === "user" || role === "assistant") {
+            count++;
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+    } while (bytesRead > 0);
+
+    // Process any remaining leftover
+    if (leftover.trim()) {
+      try {
+        const parsed = JSON.parse(leftover);
+        const role = parsed?.role ?? parsed?.message?.role;
+        if (role === "user" || role === "assistant") {
+          count++;
+        }
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // file read error
+  } finally {
+    if (fd !== null) {
+      fs.closeSync(fd);
+    }
+  }
+  return count;
+}
+
+/**
+ * Read first user message directly from a transcript file path.
+ * This is a low-level utility for archived transcripts that don't have an active session.
+ */
+export function readFirstUserMessageFromFile(
+  filePath: string,
+  opts?: { includeInterSession?: boolean },
+): string | null {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(8192);
+    const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+    if (bytesRead === 0) {
+      return null;
+    }
+    const chunk = buf.toString("utf-8", 0, bytesRead);
+    return extractFirstUserMessageFromTranscriptChunk(chunk, opts);
+  } catch {
+    // file read error
+  } finally {
+    if (fd !== null) {
+      fs.closeSync(fd);
+    }
+  }
+  return null;
+}
+
 const LAST_MSG_MAX_BYTES = 16384;
 const LAST_MSG_MAX_LINES = 20;
 
@@ -713,6 +877,29 @@ function readRecentMessagesFromTranscript(
       fs.closeSync(fd);
     }
   }
+}
+
+/**
+ * Read preview items from a specific file path (used for archived transcripts).
+ */
+export function readPreviewItemsFromFile(
+  filePath: string,
+  maxItems: number,
+  maxChars: number,
+): SessionPreviewItem[] {
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+  const boundedItems = Math.max(1, Math.min(maxItems, 50));
+  const boundedChars = Math.max(20, Math.min(maxChars, 2000));
+
+  for (const readSize of PREVIEW_READ_SIZES) {
+    const messages = readRecentMessagesFromTranscript(filePath, boundedItems, readSize);
+    if (messages.length > 0 || readSize === PREVIEW_READ_SIZES[PREVIEW_READ_SIZES.length - 1]) {
+      return buildPreviewItems(messages, boundedItems, boundedChars);
+    }
+  }
+  return [];
 }
 
 export function readSessionPreviewItemsFromTranscript(

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { getAcpSessionManager } from "../../acp/control-plane/manager.js";
 import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { clearBootstrapSnapshot } from "../../agents/bootstrap-cache.js";
@@ -39,9 +40,12 @@ import {
   archiveSessionTranscripts,
   listSessionsFromStore,
   loadCombinedSessionStoreForGateway,
+  isValidArchivedFileName,
   loadSessionEntry,
   pruneLegacyStoreKeys,
+  readPreviewItemsFromFile,
   readSessionPreviewItemsFromTranscript,
+  resolveArchivedSessionCandidateDirs,
   resolveGatewaySessionStoreTarget,
   resolveSessionModelRef,
   resolveSessionTranscriptCandidates,
@@ -323,6 +327,38 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const previews: SessionsPreviewEntry[] = [];
 
     for (const key of keys) {
+      // Handle archived session keys (e.g., "archived:sess-abc.jsonl.deleted.2026-01-01T00-00-00.000Z")
+      if (key.startsWith("archived:")) {
+        const fileName = key.slice("archived:".length);
+
+        // Validate fileName to prevent path traversal
+        if (!isValidArchivedFileName(fileName)) {
+          previews.push({ key, status: "missing", items: [] });
+          continue;
+        }
+
+        // Use shared utility to discover candidate directories
+        const candidateDirs = resolveArchivedSessionCandidateDirs();
+
+        let found = false;
+        for (const dir of candidateDirs) {
+          const filePath = path.join(dir, fileName);
+          if (fs.existsSync(filePath)) {
+            const items = readPreviewItemsFromFile(filePath, limit, maxChars);
+            previews.push({
+              key,
+              status: items.length > 0 ? "ok" : "empty",
+              items,
+            });
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          previews.push({ key, status: "missing", items: [] });
+        }
+        continue;
+      }
       try {
         const storeTarget = resolveGatewaySessionStoreTarget({ cfg, key, scanLegacyKeys: false });
         const store =
