@@ -6,7 +6,7 @@ import { listAgentIds, resolveAgentDir } from "../agents/agent-scope.js";
 import { loadAuthProfileStoreForSecretsRuntime } from "../agents/auth-profiles.js";
 import { resolveAuthStorePath } from "../agents/auth-profiles/paths.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
-import { resolveStateDir, type OpenClawConfig } from "../config/config.js";
+import { readConfigFileSnapshotForWrite, resolveStateDir, writeConfigFile, type OpenClawConfig } from "../config/config.js";
 import type { ConfigWriteOptions } from "../config/io.js";
 import type { SecretProviderConfig } from "../config/types.secrets.js";
 import { resolveConfigDir, resolveUserPath } from "../utils.js";
@@ -276,7 +276,7 @@ async function projectPlanState(params: {
   env: NodeJS.ProcessEnv;
 }): Promise<ProjectedState> {
   const io = createSecretsConfigIO({ env: params.env });
-  const { snapshot, writeOptions } = await io.readConfigFileSnapshotForWrite();
+  const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
   if (!snapshot.valid) {
     throw new Error("Cannot apply secrets plan: config is invalid.");
   }
@@ -568,7 +568,7 @@ export async function runSecretsApply(params: {
   }
 
   try {
-    await io.writeConfigFile(projected.nextConfig, projected.configWriteOptions);
+    await writeConfigFile(projected.nextConfig, projected.configWriteOptions);
     for (const write of writes) {
       writeTextFileAtomic(write.path, write.content, write.mode);
     }
