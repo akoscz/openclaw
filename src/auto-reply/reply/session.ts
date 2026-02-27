@@ -496,6 +496,15 @@ export async function initSessionState(params: {
           warning,
         }),
       onSessionPruned: (prunedKey, prunedEntry) => {
+        // Archive transcript files so they don't remain orphaned on disk.
+        archiveSessionTranscripts({
+          sessionId: prunedEntry.sessionId,
+          storePath,
+          sessionFile: prunedEntry.sessionFile,
+          agentId: resolveSessionAgentId({ sessionKey: prunedKey, config: cfg }),
+          reason: "deleted",
+        });
+
         const runner = getGlobalHookRunner();
         if (runner?.hasHooks("session_end")) {
           const msgCount = countTranscriptMessages(prunedEntry.sessionFile);
