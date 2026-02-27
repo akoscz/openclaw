@@ -30,7 +30,9 @@ export function handleAutoCompactionStart(ctx: EmbeddedPiSubscribeContext) {
           sessionFile: ctx.params.session.sessionFile,
         },
         {
+          agentId: ctx.params.agentId,
           sessionKey: ctx.params.sessionKey,
+          workspaceDir: ctx.params.workspaceDir,
         },
       )
       .catch((err) => {
@@ -92,7 +94,11 @@ export function handleAutoCompactionEnd(
             compactedCount: ctx.getCompactionCount(),
             sessionFile: ctx.params.session.sessionFile,
           },
-          { sessionKey: ctx.params.sessionKey },
+          {
+            agentId: ctx.params.agentId,
+            sessionKey: ctx.params.sessionKey,
+            workspaceDir: ctx.params.workspaceDir,
+          },
         )
         .catch((err) => {
           ctx.log.warn(`after_compaction hook failed: ${String(err)}`);
