@@ -8,13 +8,20 @@ import type { MsgContext } from "../../auto-reply/templating.js";
 import { writeTextAtomic } from "../../infra/json-files.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
+  isChannelSessionKey,
+  isCronRunSessionKey,
+  isSubagentSessionKey,
+  isThreadSessionKey,
+} from "../../sessions/session-key-utils.js";
+import {
   deliveryContextFromSession,
   mergeDeliveryContext,
   normalizeDeliveryContext,
   normalizeSessionDeliveryFields,
   type DeliveryContext,
 } from "../../utils/delivery-context.js";
-import { getFileStatSnapshot } from "../cache-utils.js";
+import { getFileStatSnapshot, isCacheEnabled, resolveCacheTtlMs } from "../cache-utils.js";
+import { loadConfig } from "../config.js";
 import { enforceSessionDiskBudget, type SessionDiskBudgetSweepResult } from "./disk-budget.js";
 import { deriveSessionMetaPatch } from "./metadata.js";
 import {
@@ -316,14 +323,379 @@ export type SessionMaintenanceApplyReport = {
   diskBudget: SessionDiskBudgetSweepResult | null;
 };
 
-export {
-  capEntryCount,
-  getActiveSessionMaintenanceWarning,
-  pruneStaleEntries,
-  resolveMaintenanceConfig,
-  rotateSessionFile,
+
+type ResolvedSessionMaintenanceConfig = {
+  mode: SessionMaintenanceMode;
+  pruneAfterMs: number;
+  maxEntries: number;
+  rotateBytes: number;
+  resetArchiveRetentionMs: number | null;
+  maxDiskBytes: number | null;
+  highWaterBytes: number | null;
+  pruneRules?: SessionPruneRules;
 };
-export type { ResolvedSessionMaintenanceConfig, SessionMaintenanceWarning };
+
+function resolvePruneAfterMs(maintenance?: SessionMaintenanceConfig): number {
+  const raw = maintenance?.pruneAfter ?? maintenance?.pruneDays;
+  if (raw === undefined || raw === null || raw === "") {
+    return DEFAULT_SESSION_PRUNE_AFTER_MS;
+  }
+  try {
+    return parseDurationMs(String(raw).trim(), { defaultUnit: "d" });
+  } catch {
+    return DEFAULT_SESSION_PRUNE_AFTER_MS;
+  }
+}
+
+function resolveRotateBytes(maintenance?: SessionMaintenanceConfig): number {
+  const raw = maintenance?.rotateBytes;
+  if (raw === undefined || raw === null || raw === "") {
+    return DEFAULT_SESSION_ROTATE_BYTES;
+  }
+  try {
+    return parseByteSize(String(raw).trim(), { defaultUnit: "b" });
+  } catch {
+    return DEFAULT_SESSION_ROTATE_BYTES;
+  }
+}
+
+function resolveResetArchiveRetentionMs(
+  maintenance: SessionMaintenanceConfig | undefined,
+  pruneAfterMs: number,
+): number | null {
+  const raw = maintenance?.resetArchiveRetention;
+  if (raw === false) {
+    return null;
+  }
+  if (raw === undefined || raw === null || raw === "") {
+    return pruneAfterMs;
+  }
+  try {
+    return parseDurationMs(String(raw).trim(), { defaultUnit: "d" });
+  } catch {
+    return pruneAfterMs;
+  }
+}
+
+function resolveMaxDiskBytes(maintenance?: SessionMaintenanceConfig): number | null {
+  const raw = maintenance?.maxDiskBytes;
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  try {
+    return parseByteSize(String(raw).trim(), { defaultUnit: "b" });
+  } catch {
+    return null;
+  }
+}
+
+function resolveHighWaterBytes(
+  maintenance: SessionMaintenanceConfig | undefined,
+  maxDiskBytes: number | null,
+): number | null {
+  const computeDefault = () => {
+    if (maxDiskBytes == null) {
+      return null;
+    }
+    if (maxDiskBytes <= 0) {
+      return 0;
+    }
+    return Math.max(
+      1,
+      Math.min(
+        maxDiskBytes,
+        Math.floor(maxDiskBytes * DEFAULT_SESSION_DISK_BUDGET_HIGH_WATER_RATIO),
+      ),
+    );
+  };
+  if (maxDiskBytes == null) {
+    return null;
+  }
+  const raw = maintenance?.highWaterBytes;
+  if (raw === undefined || raw === null || raw === "") {
+    return computeDefault();
+  }
+  try {
+    const parsed = parseByteSize(String(raw).trim(), { defaultUnit: "b" });
+    return Math.min(parsed, maxDiskBytes);
+  } catch {
+    return computeDefault();
+  }
+}
+
+/**
+ * Resolve maintenance settings from openclaw.json (`session.maintenance`).
+ * Falls back to built-in defaults when config is missing or unset.
+ */
+export function resolveMaintenanceConfig(): ResolvedSessionMaintenanceConfig {
+  let maintenance: SessionMaintenanceConfig | undefined;
+  try {
+    maintenance = loadConfig().session?.maintenance;
+  } catch {
+    // Config may not be available (e.g. in tests). Use defaults.
+  }
+  const pruneAfterMs = resolvePruneAfterMs(maintenance);
+  const maxDiskBytes = resolveMaxDiskBytes(maintenance);
+  // Merge cron.sessionRetention → pruneRules.cronRun (backward compat)
+  let pruneRules = maintenance?.pruneRules;
+  try {
+    const cronConfig = loadConfig().cron;
+    if (cronConfig?.sessionRetention !== undefined && pruneRules?.cronRun === undefined) {
+      pruneRules = { ...pruneRules, cronRun: cronConfig.sessionRetention };
+    }
+  } catch {
+    // Config may not be available.
+  }
+
+  return {
+    mode: maintenance?.mode ?? DEFAULT_SESSION_MAINTENANCE_MODE,
+    pruneAfterMs,
+    maxEntries: maintenance?.maxEntries ?? DEFAULT_SESSION_MAX_ENTRIES,
+    rotateBytes: resolveRotateBytes(maintenance),
+    resetArchiveRetentionMs: resolveResetArchiveRetentionMs(maintenance, pruneAfterMs),
+    maxDiskBytes,
+    highWaterBytes: resolveHighWaterBytes(maintenance, maxDiskBytes),
+    pruneRules,
+  };
+}
+
+/**
+ * Resolve the TTL (in ms) for a specific session key given per-type pruneRules.
+ * Returns `null` if the session type is explicitly exempted (`false`).
+ * Returns `defaultMs` if no rule matches.
+ */
+export function resolveSessionTTL(
+  sessionKey: string,
+  rules: SessionPruneRules | undefined,
+  defaultMs: number,
+): number | null {
+  if (!rules) {
+    return defaultMs;
+  }
+
+  let raw: string | number | false | undefined;
+
+  if (isSubagentSessionKey(sessionKey)) {
+    raw = rules.subagent;
+  } else if (isCronRunSessionKey(sessionKey)) {
+    raw = rules.cronRun;
+  } else if (isThreadSessionKey(sessionKey)) {
+    raw = rules.thread;
+  } else if (isChannelSessionKey(sessionKey)) {
+    raw = rules.channel;
+  }
+
+  if (raw === undefined) {
+    return defaultMs;
+  }
+  if (raw === false) {
+    return null;
+  } // exempt
+  if (typeof raw === "number") {
+    return raw;
+  }
+
+  try {
+    return parseDurationMs(raw.trim(), { defaultUnit: "h" });
+  } catch {
+    return defaultMs;
+  }
+}
+
+/**
+ * Remove entries whose `updatedAt` is older than the configured threshold.
+ * Entries without `updatedAt` are kept (cannot determine staleness).
+ * Mutates `store` in-place.
+ *
+ * When `pruneRules` is provided, per-session-type TTL overrides are applied.
+ */
+export function pruneStaleEntries(
+  store: Record<string, SessionEntry>,
+  overrideMaxAgeMs?: number,
+  opts: {
+    log?: boolean;
+    onPruned?: (params: { key: string; entry: SessionEntry }) => void;
+    pruneRules?: SessionPruneRules;
+  } = {},
+): number {
+  const defaultMaxAgeMs = overrideMaxAgeMs ?? resolveMaintenanceConfig().pruneAfterMs;
+  const now = Date.now();
+  let pruned = 0;
+  for (const [key, entry] of Object.entries(store)) {
+    if (entry?.updatedAt == null) {
+      continue;
+    }
+
+    const ttlMs = resolveSessionTTL(key, opts.pruneRules, defaultMaxAgeMs);
+    if (ttlMs === null) {
+      continue;
+    } // exempt
+
+    const cutoffMs = now - ttlMs;
+    if (entry.updatedAt < cutoffMs) {
+      opts.onPruned?.({ key, entry });
+      delete store[key];
+      pruned++;
+    }
+  }
+  if (pruned > 0 && opts.log !== false) {
+    log.info("pruned stale session entries", { pruned, defaultMaxAgeMs });
+  }
+  return pruned;
+}
+
+/**
+ * Cap the store to the N most recently updated entries.
+ * Entries without `updatedAt` are sorted last (removed first when over limit).
+ * Mutates `store` in-place.
+ */
+function getEntryUpdatedAt(entry?: SessionEntry): number {
+  return entry?.updatedAt ?? Number.NEGATIVE_INFINITY;
+}
+
+export function getActiveSessionMaintenanceWarning(params: {
+  store: Record<string, SessionEntry>;
+  activeSessionKey: string;
+  pruneAfterMs: number;
+  maxEntries: number;
+  nowMs?: number;
+}): SessionMaintenanceWarning | null {
+  const activeSessionKey = params.activeSessionKey.trim();
+  if (!activeSessionKey) {
+    return null;
+  }
+  const activeEntry = params.store[activeSessionKey];
+  if (!activeEntry) {
+    return null;
+  }
+  const now = params.nowMs ?? Date.now();
+  const cutoffMs = now - params.pruneAfterMs;
+  const wouldPrune = activeEntry.updatedAt != null ? activeEntry.updatedAt < cutoffMs : false;
+  const keys = Object.keys(params.store);
+  const wouldCap =
+    keys.length > params.maxEntries &&
+    keys
+      .toSorted((a, b) => getEntryUpdatedAt(params.store[b]) - getEntryUpdatedAt(params.store[a]))
+      .slice(params.maxEntries)
+      .includes(activeSessionKey);
+
+  if (!wouldPrune && !wouldCap) {
+    return null;
+  }
+
+  return {
+    activeSessionKey,
+    activeUpdatedAt: activeEntry.updatedAt,
+    totalEntries: keys.length,
+    pruneAfterMs: params.pruneAfterMs,
+    maxEntries: params.maxEntries,
+    wouldPrune,
+    wouldCap,
+  };
+}
+
+export function capEntryCount(
+  store: Record<string, SessionEntry>,
+  overrideMax?: number,
+  opts: {
+    log?: boolean;
+    onCapped?: (params: { key: string; entry: SessionEntry }) => void;
+  } = {},
+): number {
+  const maxEntries = overrideMax ?? resolveMaintenanceConfig().maxEntries;
+  const keys = Object.keys(store);
+  if (keys.length <= maxEntries) {
+    return 0;
+  }
+
+  // Sort by updatedAt descending; entries without updatedAt go to the end (removed first).
+  const sorted = keys.toSorted((a, b) => {
+    const aTime = getEntryUpdatedAt(store[a]);
+    const bTime = getEntryUpdatedAt(store[b]);
+    return bTime - aTime;
+  });
+
+  const toRemove = sorted.slice(maxEntries);
+  for (const key of toRemove) {
+    const entry = store[key];
+    if (entry) {
+      opts.onCapped?.({ key, entry });
+    }
+    delete store[key];
+  }
+  if (opts.log !== false) {
+    log.info("capped session entry count", { removed: toRemove.length, maxEntries });
+  }
+  return toRemove.length;
+}
+
+async function getSessionFileSize(storePath: string): Promise<number | null> {
+  try {
+    const stat = await fs.promises.stat(storePath);
+    return stat.size;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rotate the sessions file if it exceeds the configured size threshold.
+ * Renames the current file to `sessions.json.bak.{timestamp}` and cleans up
+ * old rotation backups, keeping only the 3 most recent `.bak.*` files.
+ */
+export async function rotateSessionFile(
+  storePath: string,
+  overrideBytes?: number,
+): Promise<boolean> {
+  const maxBytes = overrideBytes ?? resolveMaintenanceConfig().rotateBytes;
+
+  // Check current file size (file may not exist yet).
+  const fileSize = await getSessionFileSize(storePath);
+  if (fileSize == null) {
+    return false;
+  }
+
+  if (fileSize <= maxBytes) {
+    return false;
+  }
+
+  // Rotate: rename current file to .bak.{timestamp}
+  const backupPath = `${storePath}.bak.${Date.now()}`;
+  try {
+    await fs.promises.rename(storePath, backupPath);
+    log.info("rotated session store file", {
+      backupPath: path.basename(backupPath),
+      sizeBytes: fileSize,
+    });
+  } catch {
+    // If rename fails (e.g. file disappeared), skip rotation.
+    return false;
+  }
+
+  // Clean up old backups — keep only the 3 most recent .bak.* files.
+  try {
+    const dir = path.dirname(storePath);
+    const baseName = path.basename(storePath);
+    const files = await fs.promises.readdir(dir);
+    const backups = files
+      .filter((f) => f.startsWith(`${baseName}.bak.`))
+      .toSorted()
+      .toReversed();
+
+    const maxBackups = 3;
+    if (backups.length > maxBackups) {
+      const toDelete = backups.slice(maxBackups);
+      for (const old of toDelete) {
+        await fs.promises.unlink(path.join(dir, old)).catch(() => undefined);
+      }
+      log.info("cleaned up old session store backups", { deleted: toDelete.length });
+    }
+  } catch {
+    // Best-effort cleanup; don't fail the write.
+  }
+
+  return true;
+}
 
 type SaveSessionStoreOptions = {
   /** Skip pruning, capping, and rotation (e.g. during one-time migrations). */
@@ -342,6 +714,8 @@ type SaveSessionStoreOptions = {
   onMaintenanceApplied?: (report: SessionMaintenanceApplyReport) => void | Promise<void>;
   /** Optional overrides used by maintenance commands. */
   maintenanceOverride?: Partial<ResolvedSessionMaintenanceConfig>;
+  /** Called for each pruned session entry so callers can fire lifecycle hooks. */
+  onSessionPruned?: (key: string, entry: SessionEntry) => void;
 };
 
 function updateSessionStoreWriteCaches(params: {
@@ -475,7 +849,9 @@ async function saveSessionStoreUnlocked(
       // Prune stale entries and cap total count before serializing.
       const removedSessionFiles = new Map<string, string | undefined>();
       const pruned = pruneStaleEntries(store, maintenance.pruneAfterMs, {
-        onPruned: ({ entry }) => {
+        pruneRules: maintenance.pruneRules,
+        onPruned: ({ key, entry }) => {
+          opts?.onSessionPruned?.(key, entry);
           rememberRemovedSessionFile(removedSessionFiles, entry);
         },
       });
