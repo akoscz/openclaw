@@ -8,8 +8,8 @@ import {
   type StatusReactionAdapter,
 } from "openclaw/plugin-sdk/channel-feedback";
 import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
-import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/config-runtime";
-import { resolveAgentOutboundIdentity } from "openclaw/plugin-sdk/outbound-runtime";
+import { loadSessionStore, resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/config-runtime";
+import { resolveAgentOutboundIdentity } from "openclaw/plugin-sdk/infra-runtime";
 import { clearHistoryEntriesIfEnabled } from "openclaw/plugin-sdk/reply-history";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { dispatchInboundMessage } from "openclaw/plugin-sdk/reply-runtime";
@@ -21,6 +21,7 @@ import { reactSlackMessage, removeSlackReaction } from "../../actions.js";
 import { createSlackDraftStream } from "../../draft-stream.js";
 import { normalizeSlackOutboundText } from "../../format.js";
 import { SLACK_TEXT_LIMIT } from "../../limits.js";
+import { sendMessageSlack } from "../../send.js";
 import { recordSlackThreadParticipation } from "../../sent-thread-cache.js";
 import {
   applyAppendOnlyStreamUpdate,
@@ -75,6 +76,31 @@ function toSlackEmojiName(emoji: string): string {
 
 function hasMedia(payload: ReplyPayload): boolean {
   return resolveSendableOutboundReplyParts(payload).hasMedia;
+}
+
+type SlackReasoningLevel = "off" | "on" | "stream";
+
+function resolveSlackReasoningLevel(params: {
+  cfg: import("openclaw/plugin-sdk/config-runtime").OpenClawConfig;
+  sessionKey?: string;
+  agentId: string;
+}): SlackReasoningLevel {
+  const { cfg, sessionKey, agentId } = params;
+  if (!sessionKey) {
+    return "off";
+  }
+  try {
+    const storePath = resolveStorePath(cfg.session?.store, { agentId });
+    const store = loadSessionStore(storePath, { skipCache: true });
+    const entry = store[sessionKey.toLowerCase()] ?? store[sessionKey];
+    const level = entry?.reasoningLevel;
+    if (level === "on" || level === "stream") {
+      return level;
+    }
+  } catch {
+    // Fall through to default.
+  }
+  return "off";
 }
 
 export function isSlackStreamingEnabled(params: {
@@ -563,6 +589,63 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
         }
       };
 
+  // -----------------------------------------------------------------------
+  // Reasoning / thinking display
+  // -----------------------------------------------------------------------
+  const resolvedReasoningLevel = resolveSlackReasoningLevel({
+    cfg,
+    sessionKey: prepared.ctxPayload.SessionKey,
+    agentId: route.agentId,
+  });
+  const reasoningEnabled = resolvedReasoningLevel !== "off";
+
+  // Accumulate reasoning text so we can post it as a single message when the
+  // reasoning block ends, rather than spamming partial updates.
+  let reasoningBuffer = "";
+  let reasoningSent = false;
+
+  const sendReasoningToSlack = async (text: string) => {
+    if (!text.trim()) {
+      return;
+    }
+    const threadTs = replyPlan.nextThreadTs();
+    // Format: 🧠 prefix with the thinking text in a blockquote.
+    const formatted = `🧠 _Thinking…_\n>${text.trim().split("\n").join("\n>")}`;
+    await sendMessageSlack(prepared.replyTarget, formatted, {
+      token: ctx.botToken,
+      threadTs,
+      accountId: account.accountId,
+      ...(slackIdentity ? { identity: slackIdentity } : {}),
+    });
+    reasoningSent = true;
+  };
+
+  const onReasoningStream = reasoningEnabled
+    ? (payload: ReplyPayload) => {
+        if (payload.text) {
+          reasoningBuffer = payload.text;
+        }
+      }
+    : statusReactionsEnabled
+      ? async () => {
+          await statusReactions.setThinking();
+        }
+      : undefined;
+
+  const onReasoningEndWithFlush = async () => {
+    // Flush accumulated reasoning as a Slack message when the block ends.
+    if (reasoningEnabled && reasoningBuffer && !reasoningSent) {
+      await sendReasoningToSlack(reasoningBuffer);
+    }
+    reasoningBuffer = "";
+    reasoningSent = false;
+
+    // Preserve existing draft boundary behavior.
+    if (onDraftBoundary) {
+      await onDraftBoundary();
+    }
+  };
+
   let dispatchError: unknown;
   let queuedFinal = false;
   let counts: { final?: number; block?: number } = {};
@@ -588,13 +671,9 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
             : async (payload) => {
                 updateDraftFromPartial(payload.text);
               },
+        onReasoningStream,
         onAssistantMessageStart: onDraftBoundary,
-        onReasoningEnd: onDraftBoundary,
-        onReasoningStream: statusReactionsEnabled
-          ? async () => {
-              await statusReactions.setThinking();
-            }
-          : undefined,
+        onReasoningEnd: onReasoningEndWithFlush,
         onToolStart: statusReactionsEnabled
           ? async (payload) => {
               await statusReactions.setTool(payload.name);
