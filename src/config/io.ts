@@ -56,6 +56,7 @@ import { compareOpenClawVersions } from "./version.js";
 // Re-export for backwards compatibility
 export { CircularIncludeError, ConfigIncludeError } from "./includes.js";
 export { MissingEnvVarError } from "./env-substitution.js";
+export { MissingSecretError, SecretsProviderError } from "./secrets/resolve.js";
 
 const SHELL_ENV_EXPECTED_KEYS = [
   "OPENAI_API_KEY",
