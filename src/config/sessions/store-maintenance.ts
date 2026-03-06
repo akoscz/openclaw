@@ -4,7 +4,17 @@ import { parseByteSize } from "../../cli/parse-bytes.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { loadConfig } from "../config.js";
-import type { SessionMaintenanceConfig, SessionMaintenanceMode } from "../types.base.js";
+import {
+  isChannelSessionKey,
+  isCronRunSessionKey,
+  isSubagentSessionKey,
+  isThreadSessionKey,
+} from "../../sessions/session-key-utils.js";
+import type {
+  SessionMaintenanceConfig,
+  SessionMaintenanceMode,
+  SessionPruneRules,
+} from "../types.base.js";
 import type { SessionEntry } from "./types.js";
 
 const log = createSubsystemLogger("sessions/store");
@@ -33,6 +43,7 @@ export type ResolvedSessionMaintenanceConfig = {
   resetArchiveRetentionMs: number | null;
   maxDiskBytes: number | null;
   highWaterBytes: number | null;
+  pruneRules?: SessionPruneRules;
 };
 
 function resolvePruneAfterMs(maintenance?: SessionMaintenanceConfig): number {
@@ -136,6 +147,16 @@ export function resolveMaintenanceConfig(): ResolvedSessionMaintenanceConfig {
   }
   const pruneAfterMs = resolvePruneAfterMs(maintenance);
   const maxDiskBytes = resolveMaxDiskBytes(maintenance);
+  // Merge cron.sessionRetention → pruneRules.cronRun (backward compat)
+  let pruneRules = maintenance?.pruneRules;
+  try {
+    const cronConfig = loadConfig().cron;
+    if (cronConfig?.sessionRetention !== undefined && pruneRules?.cronRun === undefined) {
+      pruneRules = { ...pruneRules, cronRun: cronConfig.sessionRetention };
+    }
+  } catch {
+    // Config may not be available.
+  }
   return {
     mode: maintenance?.mode ?? DEFAULT_SESSION_MAINTENANCE_MODE,
     pruneAfterMs,
@@ -144,7 +165,51 @@ export function resolveMaintenanceConfig(): ResolvedSessionMaintenanceConfig {
     resetArchiveRetentionMs: resolveResetArchiveRetentionMs(maintenance, pruneAfterMs),
     maxDiskBytes,
     highWaterBytes: resolveHighWaterBytes(maintenance, maxDiskBytes),
+    pruneRules,
   };
+}
+
+/**
+ * Resolve the TTL (in ms) for a specific session key given per-type pruneRules.
+ * Returns `null` if the session type is explicitly exempted (`false`).
+ * Returns `defaultMs` if no rule matches.
+ */
+export function resolveSessionTTL(
+  sessionKey: string,
+  rules: SessionPruneRules | undefined,
+  defaultMs: number,
+): number | null {
+  if (!rules) {
+    return defaultMs;
+  }
+
+  let raw: string | number | false | undefined;
+
+  if (isSubagentSessionKey(sessionKey)) {
+    raw = rules.subagent;
+  } else if (isCronRunSessionKey(sessionKey)) {
+    raw = rules.cronRun;
+  } else if (isThreadSessionKey(sessionKey)) {
+    raw = rules.thread;
+  } else if (isChannelSessionKey(sessionKey)) {
+    raw = rules.channel;
+  }
+
+  if (raw === undefined) {
+    return defaultMs;
+  }
+  if (raw === false) {
+    return null;
+  } // exempt
+  if (typeof raw === "number") {
+    return raw;
+  }
+
+  try {
+    return parseDurationMs(raw.trim(), { defaultUnit: "h" });
+  } catch {
+    return defaultMs;
+  }
 }
 
 /**
@@ -155,20 +220,34 @@ export function resolveMaintenanceConfig(): ResolvedSessionMaintenanceConfig {
 export function pruneStaleEntries(
   store: Record<string, SessionEntry>,
   overrideMaxAgeMs?: number,
-  opts: { log?: boolean; onPruned?: (params: { key: string; entry: SessionEntry }) => void } = {},
+  opts: {
+    log?: boolean;
+    onPruned?: (params: { key: string; entry: SessionEntry }) => void;
+    pruneRules?: SessionPruneRules;
+  } = {},
 ): number {
-  const maxAgeMs = overrideMaxAgeMs ?? resolveMaintenanceConfig().pruneAfterMs;
-  const cutoffMs = Date.now() - maxAgeMs;
+  const defaultMaxAgeMs = overrideMaxAgeMs ?? resolveMaintenanceConfig().pruneAfterMs;
+  const now = Date.now();
   let pruned = 0;
   for (const [key, entry] of Object.entries(store)) {
-    if (entry?.updatedAt != null && entry.updatedAt < cutoffMs) {
+    if (entry?.updatedAt == null) {
+      continue;
+    }
+
+    const ttlMs = resolveSessionTTL(key, opts.pruneRules, defaultMaxAgeMs);
+    if (ttlMs === null) {
+      continue;
+    } // exempt
+
+    const cutoffMs = now - ttlMs;
+    if (entry.updatedAt < cutoffMs) {
       opts.onPruned?.({ key, entry });
       delete store[key];
       pruned++;
     }
   }
   if (pruned > 0 && opts.log !== false) {
-    log.info("pruned stale session entries", { pruned, maxAgeMs });
+    log.info("pruned stale session entries", { pruned, defaultMaxAgeMs });
   }
   return pruned;
 }

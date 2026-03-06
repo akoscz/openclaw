@@ -32,7 +32,6 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext) {
   if (isError && lastAssistant) {
     const friendlyError = formatAssistantErrorText(lastAssistant, {
       cfg: ctx.params.config,
-      sessionKey: ctx.params.sessionKey,
       provider: lastAssistant.provider,
       model: lastAssistant.model,
     });

@@ -30,7 +30,6 @@ export function handleAutoCompactionStart(ctx: EmbeddedPiSubscribeContext) {
         },
         {
           agentId: ctx.params.agentId,
-          sessionKey: ctx.params.sessionKey,
           workspaceDir: ctx.params.workspaceDir,
         },
       )
@@ -79,7 +78,6 @@ export function handleAutoCompactionEnd(
           },
           {
             agentId: ctx.params.agentId,
-            sessionKey: ctx.params.sessionKey,
             workspaceDir: ctx.params.workspaceDir,
           },
         )

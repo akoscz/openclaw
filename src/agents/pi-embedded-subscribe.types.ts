@@ -12,8 +12,6 @@ export type SubscribeEmbeddedPiSessionParams = {
   runId: string;
   hookRunner?: HookRunner;
   /** Session context for plugin hooks (compaction, agent lifecycle). */
-  agentId?: string;
-  sessionKey?: string;
   workspaceDir?: string;
   verboseLevel?: VerboseLevel;
   reasoningMode?: ReasoningLevel;
@@ -34,7 +32,6 @@ export type SubscribeEmbeddedPiSessionParams = {
   onAgentEvent?: (evt: { stream: string; data: Record<string, unknown> }) => void | Promise<void>;
   enforceFinalTag?: boolean;
   config?: OpenClawConfig;
-  sessionKey?: string;
   /** Ephemeral session UUID — regenerated on /new and /reset. */
   sessionId?: string;
   /** Agent identity for hook context — resolved from session config in attempt.ts. */

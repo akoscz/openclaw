@@ -1500,7 +1500,6 @@ export async function runEmbeddedAttempt(
         session: activeSession,
         runId: params.runId,
         hookRunner: getGlobalHookRunner() ?? undefined,
-        agentId: sessionAgentId,
         workspaceDir: effectiveWorkspace,
         verboseLevel: params.verboseLevel,
         reasoningMode: params.reasoningLevel ?? "off",
@@ -1519,7 +1518,6 @@ export async function runEmbeddedAttempt(
         onAgentEvent: params.onAgentEvent,
         enforceFinalTag: params.enforceFinalTag,
         config: params.config,
-        sessionKey: sandboxSessionKey,
         sessionId: params.sessionId,
         agentId: sessionAgentId,
       });

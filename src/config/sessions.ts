@@ -11,3 +11,10 @@ export * from "./sessions/transcript.js";
 export * from "./sessions/session-file.js";
 export * from "./sessions/delivery-info.js";
 export * from "./sessions/disk-budget.js";
+export {
+  capEntryCount,
+  pruneStaleEntries,
+  resolveMaintenanceConfig,
+  resolveSessionTTL,
+  rotateSessionFile,
+} from "./sessions/store-maintenance.js";
