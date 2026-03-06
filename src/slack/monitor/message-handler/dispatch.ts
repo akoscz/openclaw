@@ -7,13 +7,14 @@ import { removeAckReactionAfterReply } from "../../../channels/ack-reactions.js"
 import { logAckFailure, logTypingFailure } from "../../../channels/logging.js";
 import { createReplyPrefixOptions } from "../../../channels/reply-prefix.js";
 import { createTypingCallbacks } from "../../../channels/typing.js";
-import { resolveStorePath, updateLastRoute } from "../../../config/sessions.js";
+import { loadSessionStore, resolveStorePath, updateLastRoute } from "../../../config/sessions.js";
 import { danger, logVerbose, shouldLogVerbose } from "../../../globals.js";
 import { resolveAgentOutboundIdentity } from "../../../infra/outbound/identity.js";
 import { resolvePinnedMainDmOwnerFromAllowlist } from "../../../security/dm-policy-shared.js";
 import { reactSlackMessage, removeSlackReaction } from "../../actions.js";
 import { createSlackDraftStream } from "../../draft-stream.js";
 import { normalizeSlackOutboundText } from "../../format.js";
+import { sendMessageSlack } from "../../send.js";
 import { recordSlackThreadParticipation } from "../../sent-thread-cache.js";
 import {
   applyAppendOnlyStreamUpdate,
@@ -29,6 +30,31 @@ import type { PreparedSlackMessage } from "./types.js";
 
 function hasMedia(payload: ReplyPayload): boolean {
   return Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
+}
+
+type SlackReasoningLevel = "off" | "on" | "stream";
+
+function resolveSlackReasoningLevel(params: {
+  cfg: import("../../../config/types.js").OpenClawConfig;
+  sessionKey?: string;
+  agentId: string;
+}): SlackReasoningLevel {
+  const { cfg, sessionKey, agentId } = params;
+  if (!sessionKey) {
+    return "off";
+  }
+  try {
+    const storePath = resolveStorePath(cfg.session?.store, { agentId });
+    const store = loadSessionStore(storePath, { skipCache: true });
+    const entry = store[sessionKey.toLowerCase()] ?? store[sessionKey];
+    const level = entry?.reasoningLevel;
+    if (level === "on" || level === "stream") {
+      return level;
+    }
+  } catch {
+    // Fall through to default.
+  }
+  return "off";
 }
 
 export function isSlackStreamingEnabled(params: {
@@ -427,6 +453,59 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
           }
         };
 
+  // -----------------------------------------------------------------------
+  // Reasoning / thinking display
+  // -----------------------------------------------------------------------
+  const resolvedReasoningLevel = resolveSlackReasoningLevel({
+    cfg,
+    sessionKey: prepared.ctxPayload.SessionKey,
+    agentId: route.agentId,
+  });
+  const reasoningEnabled = resolvedReasoningLevel !== "off";
+
+  // Accumulate reasoning text so we can post it as a single message when the
+  // reasoning block ends, rather than spamming partial updates.
+  let reasoningBuffer = "";
+  let reasoningSent = false;
+
+  const sendReasoningToSlack = async (text: string) => {
+    if (!text.trim()) {
+      return;
+    }
+    const threadTs = replyPlan.nextThreadTs();
+    // Format: 🧠 prefix with the thinking text in a blockquote.
+    const formatted = `🧠 _Thinking…_\n>${text.trim().split("\n").join("\n>")}`;
+    await sendMessageSlack(prepared.replyTarget, formatted, {
+      token: ctx.botToken,
+      threadTs,
+      accountId: account.accountId,
+      ...(slackIdentity ? { identity: slackIdentity } : {}),
+    });
+    reasoningSent = true;
+  };
+
+  const onReasoningStream = reasoningEnabled
+    ? (payload: ReplyPayload) => {
+        if (payload.text) {
+          reasoningBuffer = payload.text;
+        }
+      }
+    : undefined;
+
+  const onReasoningEndWithFlush = async () => {
+    // Flush accumulated reasoning as a Slack message when the block ends.
+    if (reasoningEnabled && reasoningBuffer && !reasoningSent) {
+      await sendReasoningToSlack(reasoningBuffer);
+    }
+    reasoningBuffer = "";
+    reasoningSent = false;
+
+    // Preserve existing draft boundary behavior.
+    if (onDraftBoundary) {
+      await onDraftBoundary();
+    }
+  };
+
   const { queuedFinal, counts } = await dispatchInboundMessage({
     ctx: prepared.ctxPayload,
     cfg,
@@ -448,8 +527,9 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
           : async (payload) => {
               updateDraftFromPartial(payload.text);
             },
+      onReasoningStream,
       onAssistantMessageStart: onDraftBoundary,
-      onReasoningEnd: onDraftBoundary,
+      onReasoningEnd: onReasoningEndWithFlush,
     },
   });
   await draftStream.flush();
