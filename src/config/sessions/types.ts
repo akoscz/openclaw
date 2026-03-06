@@ -74,6 +74,10 @@ export type SessionEntry = {
   /** Timestamp (ms) when lastHeartbeatText was delivered. */
   lastHeartbeatSentAt?: number;
   sessionId: string;
+  /** Timestamp (ms) when this session was created. */
+  createdAt?: number;
+  /** Timestamp (ms) when this session was last suspended (gateway shutdown). */
+  suspendedAt?: number;
   updatedAt: number;
   sessionFile?: string;
   /** Parent session key that spawned this session (used for sandbox session-tool scoping). */
