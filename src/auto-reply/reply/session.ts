@@ -31,7 +31,6 @@ import { archiveSessionTranscripts } from "../../gateway/session-utils.fs.js";
 import { resolveConversationIdFromTargets } from "../../infra/outbound/conversation-id.js";
 import { deliverSessionMaintenanceWarning } from "../../infra/session-maintenance-warning.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { countTranscriptMessages } from "../../infra/session-message-count.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { normalizeMainKey, parseAgentSessionKey } from "../../routing/session-key.js";
 import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.js";
@@ -67,7 +66,6 @@ export type SessionInitResult = {
   isGroup: boolean;
   bodyStripped?: string;
   triggerBodyNormalized: string;
-  sessionStartHookResult?: { systemPrompt?: string; prependContext?: string };
 };
 
 function normalizeSessionText(value: unknown): string {
@@ -424,15 +422,9 @@ export async function initSessionState(params: {
   const lastTo = deliveryFields.lastTo ?? lastToRaw;
   const lastAccountId = deliveryFields.lastAccountId ?? lastAccountIdRaw;
   const lastThreadId = deliveryFields.lastThreadId ?? lastThreadIdRaw;
-  // Capture suspendedAt before clearing — needed for session_resume hook below
-  const wasSuspendedAt = baseEntry?.suspendedAt;
   sessionEntry = {
     ...baseEntry,
     sessionId,
-    createdAt: isNewSession ? Date.now() : (baseEntry?.createdAt ?? Date.now()),
-    // Clear suspendedAt on resume — it was stamped during gateway shutdown
-    // and session_resume will fire below if it was set.
-    suspendedAt: undefined,
     updatedAt: Date.now(),
     systemSent,
     abortedLastRun,
@@ -564,10 +556,19 @@ export async function initSessionState(params: {
           warning,
         }),
       onSessionPruned: (prunedKey, prunedEntry) => {
+        // Archive transcript files so they don't remain orphaned on disk.
+        archiveSessionTranscripts({
+          sessionId: prunedEntry.sessionId,
+          storePath,
+          sessionFile: prunedEntry.sessionFile,
+          agentId: resolveSessionAgentId({ sessionKey: prunedKey, config: cfg }),
+          reason: "deleted",
+        });
+
         const runner = getGlobalHookRunner();
         if (runner?.hasHooks("session_end")) {
-          const msgCount = countTranscriptMessages(prunedEntry.sessionFile);
-          const duration = prunedEntry.createdAt ? Date.now() - prunedEntry.createdAt : undefined;
+          const msgCount = 0; // TODO: count transcript messages
+          const duration = (prunedEntry as any).createdAt ? Date.now() - (prunedEntry as any).createdAt : undefined;
           void runner
             .runSessionEnd(
               {
@@ -616,68 +617,30 @@ export async function initSessionState(params: {
 
   // Run session plugin hooks (fire-and-forget)
   const hookRunner = getGlobalHookRunner();
-
-  // Fire session_resume when an existing session is reactivated after a gateway restart.
-  // We detect this by checking if suspendedAt was stamped during the previous shutdown.
-  // suspendedAt was already cleared in the entry above so it won't fire again.
-  if (hookRunner && !isNewSession && wasSuspendedAt) {
-    const suspendedForMs = Date.now() - wasSuspendedAt;
-    if (hookRunner.hasHooks("session_resume")) {
-      void hookRunner
-        .runSessionResume(
-          {
-            sessionId: sessionEntry.sessionId,
-            suspendedForMs,
-          },
-          {
-            sessionId: sessionEntry.sessionId,
-            agentId: resolveSessionAgentId({ sessionKey, config: cfg }),
-          },
-        )
-        .catch(() => {});
-    }
-  }
-
-  // Declare sessionStartHookResult in outer scope so it's available in return statement
-  let sessionStartHookResult: { systemPrompt?: string; prependContext?: string } | undefined;
-
   if (hookRunner && isNewSession) {
     const effectiveSessionId = sessionId ?? "";
 
     // If replacing an existing session, fire session_end for the old one
     if (previousSessionEntry?.sessionId && previousSessionEntry.sessionId !== effectiveSessionId) {
       if (hookRunner.hasHooks("session_end")) {
-        const prevMessageCount = countTranscriptMessages(previousSessionEntry.sessionFile);
-        const prevDurationMs = previousSessionEntry.createdAt
-          ? Date.now() - previousSessionEntry.createdAt
-          : undefined;
         const payload = buildSessionEndHookPayload({
           sessionId: previousSessionEntry.sessionId,
           sessionKey,
           cfg,
-          messageCount: prevMessageCount,
         });
-        void hookRunner
-          .runSessionEnd({ ...payload.event, durationMs: prevDurationMs }, payload.context)
-          .catch(() => {});
+        void hookRunner.runSessionEnd(payload.event, payload.context).catch(() => {});
       }
     }
 
     // Fire session_start for the new session
     if (hookRunner.hasHooks("session_start")) {
-      // Include initial prompt if available (skip empty reset triggers like bare "/new")
-      const initialPrompt =
-        bodyStripped !== undefined ? bodyStripped || undefined : triggerBodyNormalized || undefined;
-
       const payload = buildSessionStartHookPayload({
         sessionId: effectiveSessionId,
         sessionKey,
         cfg,
         resumedFrom: previousSessionEntry?.sessionId,
       });
-      sessionStartHookResult = await hookRunner
-        .runSessionStart({ ...payload.event, prompt: initialPrompt }, payload.context)
-        .catch(() => undefined);
+      void hookRunner.runSessionStart(payload.event, payload.context).catch(() => {});
     }
   }
 
@@ -698,6 +661,5 @@ export async function initSessionState(params: {
     isGroup,
     bodyStripped,
     triggerBodyNormalized,
-    sessionStartHookResult,
   };
 }

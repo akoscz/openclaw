@@ -63,7 +63,7 @@ export function isCronRunSessionKey(sessionKey: string | undefined | null): bool
   if (!parsed) {
     return false;
   }
-  return /^cron:[^:]+:run:[^:]+$/.test(parsed.rest);
+  return /^cron:[^:]+(:run:[^:]+)?$/.test(parsed.rest);
 }
 
 export function isCronSessionKey(sessionKey: string | undefined | null): boolean {
@@ -108,6 +108,35 @@ export function isAcpSessionKey(sessionKey: string | undefined | null): boolean 
 }
 
 const THREAD_SESSION_MARKERS = [":thread:", ":topic:"];
+
+/**
+ * Returns true if the session key represents a thread or topic session.
+ */
+export function isThreadSessionKey(sessionKey: string | undefined | null): boolean {
+  const raw = (sessionKey ?? "").trim();
+  if (!raw) {
+    return false;
+  }
+  const normalized = raw.toLowerCase();
+  return THREAD_SESSION_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+/**
+ * Returns true if the session key represents a channel session (not a thread,
+ * subagent, cron run, or ACP session).
+ */
+export function isChannelSessionKey(sessionKey: string | undefined | null): boolean {
+  const raw = (sessionKey ?? "").trim();
+  if (!raw) {
+    return false;
+  }
+  return (
+    !isSubagentSessionKey(raw) &&
+    !isCronRunSessionKey(raw) &&
+    !isAcpSessionKey(raw) &&
+    !isThreadSessionKey(raw)
+  );
+}
 
 export function resolveThreadParentSessionKey(
   sessionKey: string | undefined | null,
