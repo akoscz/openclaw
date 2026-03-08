@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { resolveUserTimezone } from "../../../../../src/agents/date-time.js";
 import type { AgentConfig } from "../../../../../src/config/types.agents.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
@@ -8,6 +9,7 @@ import {
   hasCurrentHomeTab,
   hasCustomHomeTab,
   isPublishInFlight,
+  markHomeTabCustom,
   markHomeTabPublished,
   markPublishInFlight,
 } from "../../home-tab-state.js";
@@ -49,6 +51,7 @@ export type AppHomeConfig = {
   enabled?: boolean;
   showCommands?: boolean;
   customBlocks?: unknown[];
+  customScript?: string;
 };
 
 function resolveHomeTabConfig(ctx: SlackMonitorContext): AppHomeConfig {
@@ -59,6 +62,7 @@ function resolveHomeTabConfig(ctx: SlackMonitorContext): AppHomeConfig {
     enabled: homeTab?.enabled ?? true,
     showCommands: homeTab?.showCommands ?? true,
     customBlocks: homeTab?.customBlocks,
+    customScript: homeTab?.customScript,
   };
 }
 
@@ -117,6 +121,39 @@ export function registerSlackAppHomeEvents(params: { ctx: SlackMonitorContext })
 
   const accountId = ctx.accountId;
 
+  const homeScriptPath =
+    homeTabConfig.customScript ??
+    `${process.env.HOME}/.openclaw/workspace/scripts/push-home-tab.py`;
+
+  function runCustomScript(userId: string | undefined, reason: string): void {
+    execFile("python3", [homeScriptPath], { timeout: 30_000 }, (err, stdout) => {
+      if (err) {
+        ctx.runtime.error?.(danger(`slack: home tab ${reason} script failed: ${String(err)}`));
+      } else {
+        logVerbose(`slack: home tab ${reason}${stdout ? ` — ${stdout.trim()}` : ""}`);
+      }
+    });
+  }
+
+  // Handle the "Refresh" button click from the Home tab
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (ctx.app as any).action(
+    "openclaw:home_tab_refresh",
+    async (args: { ack: () => Promise<void>; body: Record<string, unknown> }) => {
+      const { ack, body } = args;
+      await ack();
+      if (ctx.shouldDropMismatchedSlackEvent?.(body)) {
+        return;
+      }
+      const userId = (body.user as Record<string, unknown> | undefined)?.id as string | undefined;
+      logVerbose(`slack: home tab refresh requested by ${userId ?? "unknown"}`);
+      if (userId) {
+        markHomeTabCustom(accountId, userId);
+      }
+      runCustomScript(userId, "refresh");
+    },
+  );
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (ctx.app as any).event(
     "app_home_opened",
@@ -138,6 +175,17 @@ export function registerSlackAppHomeEvents(params: { ctx: SlackMonitorContext })
         }
 
         const userId = event.user as string;
+
+        // If a custom script is configured, run it instead of the default view.
+        // Mark the user as having a custom view so subsequent app_home_opened
+        // events don't overwrite it with the default layout.
+        if (homeTabConfig.customScript) {
+          if (!hasCustomHomeTab(accountId, userId)) {
+            markHomeTabCustom(accountId, userId);
+            runCustomScript(userId, "on-open");
+          }
+          return;
+        }
 
         // If the user has a custom (agent-pushed) view, don't overwrite it.
         if (hasCustomHomeTab(accountId, userId)) {

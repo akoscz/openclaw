@@ -1029,6 +1029,7 @@ export const SlackAccountSchema = z
         enabled: z.boolean().optional(),
         showCommands: z.boolean().optional(),
         customBlocks: z.array(z.unknown()).optional(),
+        customScript: z.string().optional(),
       })
       .strict()
       .optional(),
