@@ -95,18 +95,30 @@ describe("AwsSecretProvider — getSecret", () => {
     expect(value).toBe("binary-secret");
   });
 
-  it("passes VersionId when version is provided", async () => {
+  it("passes VersionStage for staging label versions", async () => {
     mockSend.mockResolvedValueOnce({ SecretString: "versioned-value" });
     const provider = new AwsSecretProvider({ region: "us-east-1" });
-    const value = await provider.getSecret("my-secret", "abc123");
+    const value = await provider.getSecret("my-secret", "AWSCURRENT");
     expect(value).toBe("versioned-value");
-    // Verify the command was constructed with version params
     expect(mockSend).toHaveBeenCalledTimes(1);
     const cmd = mockSend.mock.calls[0][0];
     expect(cmd.input).toEqual({
       SecretId: "my-secret",
-      VersionId: "abc123",
-      VersionStage: "abc123",
+      VersionStage: "AWSCURRENT",
+    });
+  });
+
+  it("passes VersionId for UUID versions", async () => {
+    mockSend.mockResolvedValueOnce({ SecretString: "uuid-versioned-value" });
+    const provider = new AwsSecretProvider({ region: "us-east-1" });
+    const uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    const value = await provider.getSecret("my-secret", uuid);
+    expect(value).toBe("uuid-versioned-value");
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const cmd = mockSend.mock.calls[0][0];
+    expect(cmd.input).toEqual({
+      SecretId: "my-secret",
+      VersionId: uuid,
     });
   });
 

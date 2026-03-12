@@ -128,8 +128,12 @@ export class AwsSecretProvider implements SecretProvider {
 
     const params: Record<string, string> = { SecretId: secretName };
     if (version) {
-      params.VersionId = version;
-      params.VersionStage = version;
+      // UUIDs go to VersionId; staging labels (AWSCURRENT/AWSPREVIOUS) go to VersionStage
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(version)) {
+        params.VersionId = version;
+      } else {
+        params.VersionStage = version;
+      }
     }
 
     let response: Record<string, unknown>;
