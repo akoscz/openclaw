@@ -9,6 +9,7 @@
 
 import { isPlainObject } from "../utils.js";
 import { AzureSecretProvider } from "./azure-secret-provider.js";
+import { EnvSecretProvider } from "./env-secret-provider.js";
 
 // Matches ${provider:name} or ${provider:name#version}
 // Provider: lowercase alpha. Name: alphanum, hyphens, underscores, slashes, dots.
@@ -339,6 +340,9 @@ export function buildSecretProviders(
           cacheTtlSeconds: config?.cacheTtlSeconds,
         }),
       );
+    }
+    if (name === "env") {
+      providers.set("env", new EnvSecretProvider());
     }
   }
 
