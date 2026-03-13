@@ -203,6 +203,9 @@ Use this when auditing access or deciding what to back up:
 - **Telegram bot token**: config/env or `channels.telegram.tokenFile` (regular file only; symlinks rejected)
 - **Discord bot token**: config/env or SecretRef (env/file/exec providers)
 - **Slack tokens**: config/env (`channels.slack.*`)
+- **Secrets manager**: When configured, API keys and tokens can be stored in external
+  secrets managers (GCP Secret Manager, OS Keyring, etc.) instead of plaintext in config.
+  See [Secrets Manager](/gateway/secrets/) for setup.
 - **Pairing allowlists**:
   - `~/.openclaw/credentials/<channel>-allowFrom.json` (default account)
   - `~/.openclaw/credentials/<channel>-<accountId>-allowFrom.json` (non-default accounts)
@@ -218,8 +221,9 @@ When the audit prints findings, treat this as a priority order:
 2. **Public network exposure** (LAN bind, Funnel, missing auth): fix immediately.
 3. **Browser control remote exposure**: treat it like operator access (tailnet-only, pair nodes deliberately, avoid public exposure).
 4. **Permissions**: make sure state/config/credentials/auth are not group/world-readable.
-5. **Plugins/extensions**: only load what you explicitly trust.
-6. **Model choice**: prefer modern, instruction-hardened models for any bot with tools.
+5. **Secrets management**: consider storing sensitive credentials in an external secrets manager instead of plaintext config.
+6. **Plugins/extensions**: only load what you explicitly trust.
+7. **Model choice**: prefer modern, instruction-hardened models for any bot with tools.
 
 ## Security audit glossary
 
