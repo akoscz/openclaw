@@ -31,8 +31,8 @@ import type { TtsAutoMode } from "../../config/types.tts.js";
 import { archiveSessionTranscripts } from "../../gateway/session-utils.fs.js";
 import { resolveConversationIdFromTargets } from "../../infra/outbound/conversation-id.js";
 import { deliverSessionMaintenanceWarning } from "../../infra/session-maintenance-warning.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { countTranscriptMessages } from "../../infra/session-message-count.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { normalizeMainKey, parseAgentSessionKey } from "../../routing/session-key.js";
 import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.js";
@@ -569,6 +569,15 @@ export async function initSessionState(params: {
           warning,
         }),
       onSessionPruned: (prunedKey, prunedEntry) => {
+        // Archive transcript files so they don't remain orphaned on disk.
+        archiveSessionTranscripts({
+          sessionId: prunedEntry.sessionId,
+          storePath,
+          sessionFile: prunedEntry.sessionFile,
+          agentId: resolveSessionAgentId({ sessionKey: prunedKey, config: cfg }),
+          reason: "deleted",
+        });
+
         const runner = getGlobalHookRunner();
         if (runner?.hasHooks("session_end")) {
           const msgCount = countTranscriptMessages(prunedEntry.sessionFile);
