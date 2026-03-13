@@ -12,6 +12,7 @@ import { AzureSecretProvider } from "./azure-secret-provider.js";
 import { EnvSecretProvider } from "./env-secret-provider.js";
 import { KeyringSecretProvider } from "./keyring-secret-provider.js";
 import { OnePasswordSecretProvider } from "./onepassword-secret-provider.js";
+import { VaultSecretProvider } from "./vault-secret-provider.js";
 
 // Matches ${provider:name} or ${provider:name#version}
 // Provider: lowercase alpha. Name: alphanum, hyphens, underscores, slashes, dots.
@@ -50,6 +51,15 @@ export type SecretsConfig = {
       tenantId?: string;
       clientId?: string;
       clientSecret?: string;
+      // Vault-specific
+      address?: string;
+      namespace?: string;
+      mountPath?: string;
+      authMethod?: string;
+      token?: string;
+      tokenFile?: string;
+      roleId?: string;
+      secretId?: string;
     }
   >;
 };
@@ -362,6 +372,22 @@ export function buildSecretProviders(
         new OnePasswordSecretProvider({
           vault: config?.vault,
           field: config?.field,
+        }),
+      );
+    }
+    if (name === "vault") {
+      providers.set(
+        "vault",
+        new VaultSecretProvider({
+          address: config?.address ?? "http://127.0.0.1:8200",
+          namespace: config?.namespace,
+          mountPath: config?.mountPath,
+          authMethod: config?.authMethod as "token" | "approle" | "kubernetes" | undefined,
+          token: config?.token,
+          tokenFile: config?.tokenFile,
+          roleId: config?.roleId,
+          secretId: config?.secretId,
+          cacheTtlSeconds: config?.cacheTtlSeconds,
         }),
       );
     }
