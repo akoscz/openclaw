@@ -10,6 +10,8 @@
 import { isPlainObject } from "../utils.js";
 import { AzureSecretProvider } from "./azure-secret-provider.js";
 import { EnvSecretProvider } from "./env-secret-provider.js";
+import { KeyringSecretProvider } from "./keyring-secret-provider.js";
+import { OnePasswordSecretProvider } from "./onepassword-secret-provider.js";
 
 // Matches ${provider:name} or ${provider:name#version}
 // Provider: lowercase alpha. Name: alphanum, hyphens, underscores, slashes, dots.
@@ -343,6 +345,25 @@ export function buildSecretProviders(
     }
     if (name === "env") {
       providers.set("env", new EnvSecretProvider());
+    }
+    if (name === "keyring") {
+      providers.set(
+        "keyring",
+        new KeyringSecretProvider({
+          account: config?.account,
+          keychainPath: config?.keychainPath,
+          keychainPassword: config?.keychainPassword,
+        }),
+      );
+    }
+    if (name === "1password") {
+      providers.set(
+        "1password",
+        new OnePasswordSecretProvider({
+          vault: config?.vault,
+          field: config?.field,
+        }),
+      );
     }
   }
 
