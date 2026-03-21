@@ -2046,6 +2046,8 @@ export const PLUGIN_HOOK_NAMES = [
   "tool_result_persist",
   "before_message_write",
   "session_start",
+  "session_resume",
+  "session_suspend",
   "session_end",
   "subagent_spawning",
   "subagent_delivery_target",
