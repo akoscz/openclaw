@@ -8,7 +8,9 @@ import {
   failTaskRunByRunId,
 } from "../../tasks/task-executor.js";
 import { resolveCronDeliveryPlan } from "../delivery.js";
-import { sweepCronRunSessions } from "../session-reaper.js";
+import { shouldEnqueueCronMainSummary } from "../heartbeat-policy.js";
+// sweepCronRunSessions removed — cron run pruning now handled by unified session maintenance.
+// See: src/cron/session-reaper.ts (deprecated)
 import type {
   CronDeliveryStatus,
   CronJob,
@@ -784,43 +786,11 @@ export async function onTimer(state: CronServiceState) {
         await persist(state);
       });
     }
+    // Cron run session pruning is now handled by the unified session maintenance
+    // system (session.maintenance.pruneRules.cronRun). The cron.sessionRetention
+    // config is automatically migrated by resolveMaintenanceConfig().
+    // See: src/cron/session-reaper.ts (deprecated)
   } finally {
-    // Piggyback session reaper on timer tick (self-throttled to every 5 min).
-    // Placed in `finally` so the reaper runs even when a long-running job keeps
-    // `state.running` true across multiple timer ticks — the early return at the
-    // top of onTimer would otherwise skip the reaper indefinitely.
-    const storePaths = new Set<string>();
-    if (state.deps.resolveSessionStorePath) {
-      const defaultAgentId = state.deps.defaultAgentId ?? DEFAULT_AGENT_ID;
-      if (state.store?.jobs?.length) {
-        for (const job of state.store.jobs) {
-          const agentId =
-            typeof job.agentId === "string" && job.agentId.trim() ? job.agentId : defaultAgentId;
-          storePaths.add(state.deps.resolveSessionStorePath(agentId));
-        }
-      } else {
-        storePaths.add(state.deps.resolveSessionStorePath(defaultAgentId));
-      }
-    } else if (state.deps.sessionStorePath) {
-      storePaths.add(state.deps.sessionStorePath);
-    }
-
-    if (storePaths.size > 0) {
-      const nowMs = state.deps.nowMs();
-      for (const storePath of storePaths) {
-        try {
-          await sweepCronRunSessions({
-            cronConfig: state.deps.cronConfig,
-            sessionStorePath: storePath,
-            nowMs,
-            log: state.deps.log,
-          });
-        } catch (err) {
-          state.deps.log.warn({ err: String(err), storePath }, "cron: session reaper sweep failed");
-        }
-      }
-    }
-
     state.running = false;
     armTimer(state);
   }

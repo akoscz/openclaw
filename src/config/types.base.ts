@@ -163,6 +163,23 @@ export type SessionMaintenanceConfig = {
    * Default: 80% of maxDiskBytes.
    */
   highWaterBytes?: number | string;
+  /**
+   * Per-session-type TTL overrides.  Each value is a duration string (e.g. "1h"),
+   * a number of milliseconds, or `false` to exempt that type from pruning entirely.
+   * When unset for a type, the global `pruneAfter` applies.
+   */
+  pruneRules?: SessionPruneRules;
+};
+
+export type SessionPruneRules = {
+  /** TTL for sub-agent sessions. e.g. "1h" */
+  subagent?: string | number | false;
+  /** TTL for cron run sessions. e.g. "2h".  Replaces cron.sessionRetention. */
+  cronRun?: string | number | false;
+  /** TTL for thread/topic sessions. e.g. "48h" */
+  thread?: string | number | false;
+  /** TTL for channel sessions. `false` = never prune. */
+  channel?: string | number | false;
 };
 
 export type LoggingConfig = {

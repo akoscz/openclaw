@@ -918,7 +918,7 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
       "session_start",
       event,
       ctx,
-      mergeBeforePromptBuild,
+      { mergeResults: mergeBeforePromptBuild },
     );
   }
 
