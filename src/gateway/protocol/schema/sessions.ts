@@ -21,6 +21,11 @@ export const SessionsListParamsSchema = Type.Object(
     spawnedBy: Type.Optional(NonEmptyString),
     agentId: Type.Optional(NonEmptyString),
     search: Type.Optional(Type.String()),
+    /**
+     * Include archived (pruned/reset) session transcripts in the listing.
+     * Archived sessions are discovered by scanning for `.deleted.*` and `.reset.*` files.
+     */
+    includeArchived: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
