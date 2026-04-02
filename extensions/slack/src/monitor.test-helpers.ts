@@ -81,6 +81,9 @@ function ensureSlackTestRuntime(): {
           user: { profile: { display_name: "Ada" } },
         }),
       },
+      views: {
+        publish: vi.fn().mockResolvedValue({ ok: true }),
+      },
       assistant: {
         threads: {
           setStatus: vi.fn().mockResolvedValue({ ok: true }),
