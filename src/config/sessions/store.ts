@@ -31,6 +31,7 @@ import {
   getActiveSessionMaintenanceWarning,
   pruneStaleEntries,
   resolveMaintenanceConfig,
+  resolveSessionTTL,
   rotateSessionFile,
   type ResolvedSessionMaintenanceConfig,
   type SessionMaintenanceWarning,
@@ -321,6 +322,7 @@ export {
   getActiveSessionMaintenanceWarning,
   pruneStaleEntries,
   resolveMaintenanceConfig,
+  resolveSessionTTL,
   rotateSessionFile,
 };
 export type { ResolvedSessionMaintenanceConfig, SessionMaintenanceWarning };
@@ -482,6 +484,7 @@ async function saveSessionStoreUnlocked(
           opts?.onSessionPruned?.(key, entry);
           rememberRemovedSessionFile(removedSessionFiles, entry);
         },
+        pruneRules: maintenance.pruneRules,
       });
       const capped = capEntryCount(store, maintenance.maxEntries, {
         onCapped: ({ entry }) => {

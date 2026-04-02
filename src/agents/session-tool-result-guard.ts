@@ -19,6 +19,24 @@ import { extractToolCallsFromAssistant, extractToolResultId } from "./tool-call-
 
 const requireConfig = createRequire(import.meta.url);
 
+// WeakMap to store the original (pre-guard) appendMessage for each session manager.
+const rawAppendMessageMap = new WeakMap<
+  SessionManager,
+  SessionManager["appendMessage"]
+>();
+
+/**
+ * Returns the raw (pre-guard) appendMessage method for the given SessionManager.
+ * Useful for transcript rewrites that need to bypass persistence hooks.
+ * Falls back to the current appendMessage if no guard has been installed.
+ */
+export function getRawSessionAppendMessage(
+  sessionManager: SessionManager,
+): SessionManager["appendMessage"] {
+  const raw = rawAppendMessageMap.get(sessionManager);
+  return raw ?? sessionManager.appendMessage.bind(sessionManager);
+}
+
 const GUARD_TRUNCATION_SUFFIX =
   "\n\n⚠️ [Content truncated during persistence — original exceeded size limit. " +
   "Use offset/limit parameters or request specific sections for large content.]";
@@ -214,6 +232,8 @@ export function redactEntryForPersistence(
 export function installSessionToolResultGuard(
   sessionManager: SessionManager,
   opts?: {
+    /** Session key for context (e.g. hook context). */
+    sessionKey?: string;
     /**
      * Optional transform applied to any message before persistence.
      */
@@ -251,6 +271,10 @@ export function installSessionToolResultGuard(
   getPendingIds: () => string[];
 } {
   const originalAppend = sessionManager.appendMessage.bind(sessionManager);
+  // Store the original appendMessage before patching so transcript rewrites can bypass guards.
+  if (!rawAppendMessageMap.has(sessionManager)) {
+    rawAppendMessageMap.set(sessionManager, originalAppend);
+  }
   const pendingState = createPendingToolCallState();
   const persistMessage = (message: AgentMessage) => {
     const transformer = opts?.transformMessageForPersistence;
