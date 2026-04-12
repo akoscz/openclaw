@@ -41,6 +41,10 @@ export type GatewaySessionRow = {
   subagentRole?: SessionEntry["subagentRole"];
   subagentControlScope?: SessionEntry["subagentControlScope"];
   kind: "direct" | "group" | "global" | "unknown";
+  /** ISO timestamp when the session was archived. */
+  archivedAt?: string;
+  /** Number of user/assistant messages (for archived sessions). */
+  messageCount?: number;
   label?: string;
   displayName?: string;
   derivedTitle?: string;
@@ -70,7 +74,7 @@ export type GatewaySessionRow = {
   totalTokens?: number;
   totalTokensFresh?: boolean;
   estimatedCostUsd?: number;
-  status?: SessionRunStatus;
+  status?: SessionRunStatus | "archived";
   hasActiveRun?: boolean;
   subagentRunState?: SubagentRunState;
   hasActiveSubagentRun?: boolean;
