@@ -3,7 +3,10 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type {
   PluginHookSessionEndEvent,
   PluginHookSessionEndReason,
+  PluginHookSessionResumeEvent,
   PluginHookSessionStartEvent,
+  PluginHookSessionSuspendEvent,
+  PluginHookSessionSuspendReason,
 } from "../../plugins/hook-types.js";
 
 export type SessionHookContext = {
@@ -29,6 +32,7 @@ export function buildSessionStartHookPayload(params: {
   sessionKey: string;
   cfg: OpenClawConfig;
   resumedFrom?: string;
+  prompt?: string;
 }): {
   event: PluginHookSessionStartEvent;
   context: SessionHookContext;
@@ -38,6 +42,57 @@ export function buildSessionStartHookPayload(params: {
       sessionId: params.sessionId,
       sessionKey: params.sessionKey,
       resumedFrom: params.resumedFrom,
+      prompt: params.prompt,
+    },
+    context: buildSessionHookContext({
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+      cfg: params.cfg,
+    }),
+  };
+}
+
+export function buildSessionSuspendHookPayload(params: {
+  sessionId: string;
+  sessionKey: string;
+  cfg: OpenClawConfig;
+  messageCount: number;
+  durationMs?: number;
+  reason?: PluginHookSessionSuspendReason;
+}): {
+  event: PluginHookSessionSuspendEvent;
+  context: SessionHookContext;
+} {
+  return {
+    event: {
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+      messageCount: params.messageCount,
+      durationMs: params.durationMs,
+      reason: params.reason,
+    },
+    context: buildSessionHookContext({
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+      cfg: params.cfg,
+    }),
+  };
+}
+
+export function buildSessionResumeHookPayload(params: {
+  sessionId: string;
+  sessionKey: string;
+  cfg: OpenClawConfig;
+  suspendedForMs?: number;
+}): {
+  event: PluginHookSessionResumeEvent;
+  context: SessionHookContext;
+} {
+  return {
+    event: {
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+      suspendedForMs: params.suspendedForMs,
     },
     context: buildSessionHookContext({
       sessionId: params.sessionId,

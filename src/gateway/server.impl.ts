@@ -48,6 +48,7 @@ import {
   pinActivePluginHttpRouteRegistry,
 } from "../plugins/runtime.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
+import { runGlobalSessionSuspendOnShutdown } from "../plugins/session-suspend-on-shutdown.js";
 import { getTotalQueueSize } from "../process/command-queue.js";
 import type { RuntimeEnv } from "../runtime.js";
 import {
@@ -1560,6 +1561,8 @@ export async function startGatewayServer(
     close: async (opts) => {
       try {
         markClosePreludeStarted();
+        // Fire session_suspend for each active session so plugins can snapshot state.
+        await runGlobalSessionSuspendOnShutdown({ cfg: cfgAtStart });
         // Run gateway_stop plugin hook before shutdown
         const { runGlobalGatewayStopSafely } = await import("../plugins/hook-runner-global.js");
         await runGlobalGatewayStopSafely({

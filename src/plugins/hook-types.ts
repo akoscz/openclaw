@@ -90,6 +90,8 @@ export type PluginHookName =
   | "before_message_write"
   | "session_start"
   | "session_end"
+  | "session_suspend"
+  | "session_resume"
   | "subagent_spawning"
   | "subagent_delivery_target"
   | "subagent_spawned"
@@ -128,6 +130,8 @@ export const PLUGIN_HOOK_NAMES = [
   "before_message_write",
   "session_start",
   "session_end",
+  "session_suspend",
+  "session_resume",
   "subagent_spawning",
   "subagent_delivery_target",
   "subagent_spawned",
@@ -507,6 +511,25 @@ export type PluginHookSessionStartEvent = {
   sessionId: string;
   sessionKey?: string;
   resumedFrom?: string;
+  /** Initial user prompt that triggered this session (message body). */
+  prompt?: string;
+};
+
+export type PluginHookSessionSuspendReason = "idle" | "gateway_shutdown" | "unknown";
+
+export type PluginHookSessionSuspendEvent = {
+  sessionId: string;
+  sessionKey?: string;
+  messageCount: number;
+  durationMs?: number;
+  reason?: PluginHookSessionSuspendReason;
+};
+
+export type PluginHookSessionResumeEvent = {
+  sessionId: string;
+  sessionKey?: string;
+  /** Time since the session was last active (ms). */
+  suspendedForMs?: number;
 };
 
 export type PluginHookSessionEndReason =
@@ -948,6 +971,14 @@ export type PluginHookHandlerMap = {
   ) => Promise<void> | void;
   session_end: (
     event: PluginHookSessionEndEvent,
+    ctx: PluginHookSessionContext,
+  ) => Promise<void> | void;
+  session_suspend: (
+    event: PluginHookSessionSuspendEvent,
+    ctx: PluginHookSessionContext,
+  ) => Promise<void> | void;
+  session_resume: (
+    event: PluginHookSessionResumeEvent,
     ctx: PluginHookSessionContext,
   ) => Promise<void> | void;
   subagent_spawning: (
