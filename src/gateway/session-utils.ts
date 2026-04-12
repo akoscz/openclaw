@@ -86,9 +86,16 @@ import {
   resolveStoredSessionKeyForAgentStore,
 } from "./session-store-key.js";
 import {
+  ARCHIVED_FILENAME_RE,
+  type ArchivedTranscriptInfo,
+  countMessagesInTranscriptFile,
+  isValidArchivedFileName,
+  readFirstUserMessageFromFile,
+  readLatestSessionUsageFromTranscript,
   readRecentSessionUsageFromTranscript,
-  readSessionTitleFieldsFromTranscriptAsync,
   readSessionTitleFieldsFromTranscript,
+  readSessionTitleFieldsFromTranscriptAsync,
+  scanArchivedTranscripts,
 } from "./session-utils.fs.js";
 import type {
   GatewayAgentRow,
@@ -99,10 +106,14 @@ import type {
 } from "./session-utils.types.js";
 
 export {
+  ARCHIVED_FILENAME_RE,
   archiveFileOnDisk,
   archiveSessionTranscripts,
   attachOpenClawTranscriptMeta,
   capArrayByJsonBytes,
+  countMessagesInTranscriptFile,
+  isValidArchivedFileName,
+  readFirstUserMessageFromFile,
   readFirstUserMessageFromTranscript,
   readLastMessagePreviewFromTranscript,
   readLatestSessionUsageFromTranscriptAsync,
@@ -115,12 +126,14 @@ export {
   readSessionMessageCountAsync,
   readSessionTitleFieldsFromTranscript,
   readSessionTitleFieldsFromTranscriptAsync,
+  readPreviewItemsFromFile,
   readSessionPreviewItemsFromTranscript,
   readSessionMessagesAsync,
   visitSessionMessagesAsync,
   resolveSessionTranscriptCandidates,
+  scanArchivedTranscripts,
 } from "./session-utils.fs.js";
-export type { ReadSessionMessagesAsyncOptions } from "./session-utils.fs.js";
+export type { ArchivedTranscriptInfo, ReadSessionMessagesAsyncOptions } from "./session-utils.fs.js";
 export { canonicalizeSpawnedByForAgent, resolveSessionStoreKey } from "./session-store-key.js";
 export type {
   GatewayAgentRow,
@@ -1294,6 +1307,45 @@ export function resolveGatewaySessionThinkingDefault(params: {
   );
 }
 
+/**
+ * Resolve the base state directory containing agent session directories.
+ * This is the parent of the "agents/" directory where per-agent session stores live.
+ *
+ * For example, if storePath is `~/.openclaw/agents/orchestrator/sessions/sessions.json`,
+ * this returns `~/.openclaw/agents`.
+ */
+export function resolveSessionsBaseDir(): string {
+  return resolveStateDir();
+}
+
+/**
+ * Discover session directories across all agents.
+ * Returns an array of candidate directories where archived transcripts might be found.
+ */
+export function resolveArchivedSessionCandidateDirs(): string[] {
+  const stateDir = resolveSessionsBaseDir();
+  const candidateDirs: string[] = [];
+
+  // Scan agents/ directory for all agent session dirs
+  const agentsDir = path.join(stateDir, "agents");
+  if (fs.existsSync(agentsDir)) {
+    try {
+      for (const d of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+        if (d.isDirectory()) {
+          candidateDirs.push(path.join(agentsDir, d.name, "sessions"));
+        }
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
+  // Also include legacy sessions/ directory at state root
+  candidateDirs.push(path.join(stateDir, "sessions"));
+
+  return candidateDirs;
+}
+
 export function getSessionDefaults(
   cfg: OpenClawConfig,
   modelCatalog?: ModelCatalogEntry[],
@@ -2233,6 +2285,69 @@ export async function listSessionsFromStoreAsync(params: {
     // channel I/O, and concurrent RPC calls are not starved.
     if ((i + 1) % SESSIONS_LIST_YIELD_BATCH_SIZE === 0 && i + 1 < entries.length) {
       await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  // Append archived sessions when requested
+  if (opts.includeArchived === true) {
+    // Scan all agent session directories, not just the current one
+    const candidateDirs = resolveArchivedSessionCandidateDirs();
+    // Also include the directory containing the current store file (ensures we find
+    // archived transcripts even when storePath doesn't match the resolved state dir)
+    const storeDir = path.dirname(storePath);
+    if (!candidateDirs.includes(storeDir)) {
+      candidateDirs.push(storeDir);
+    }
+    const archivedSet = new Map<string, ArchivedTranscriptInfo>();
+
+    // Collect archived transcripts from all candidate directories, deduplicating by filename
+    for (const sessionsDir of candidateDirs) {
+      const archived = scanArchivedTranscripts(sessionsDir);
+      for (const info of archived) {
+        const basename = path.basename(info.filePath);
+        // Keep the first occurrence (arbitrary but consistent)
+        if (!archivedSet.has(basename)) {
+          archivedSet.set(basename, info);
+        }
+      }
+    }
+
+    for (const info of archivedSet.values()) {
+      // Build a key prefixed with "archived:" so consumers can distinguish
+      const archiveKey = `archived:${path.basename(info.filePath)}`;
+
+      // Apply search filter if present
+      if (search) {
+        const fields = [info.sessionId, archiveKey, info.reason];
+        if (!fields.some((f) => f.toLowerCase().includes(search))) {
+          continue;
+        }
+      }
+
+      let derivedTitle: string | undefined;
+
+      if (includeDerivedTitles) {
+        // Use utility to read first user message from archived file
+        const text = readFirstUserMessageFromFile(info.filePath);
+        if (text) {
+          derivedTitle =
+            text.length > DERIVED_TITLE_MAX_LEN
+              ? `${text.slice(0, DERIVED_TITLE_MAX_LEN - 1)}…`
+              : text;
+        }
+      }
+
+      // Skip message counting during listing — only compute when explicitly needed (e.g., preview)
+      sessions.push({
+        key: archiveKey,
+        kind: "direct",
+        status: "archived",
+        archivedAt: info.archivedAt,
+        messageCount: undefined,
+        updatedAt: info.archivedAt ? new Date(info.archivedAt).getTime() : null,
+        derivedTitle,
+        sessionId: info.sessionId,
+      });
     }
   }
 
