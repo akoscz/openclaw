@@ -53,6 +53,7 @@ import {
   pinActivePluginSessionExtensionRegistry,
 } from "../plugins/runtime.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
+import { runGlobalSessionSuspendOnShutdown } from "../plugins/session-suspend-on-shutdown.js";
 import { getTotalQueueSize, isGatewayDraining } from "../process/command-queue.js";
 import type { RuntimeEnv } from "../runtime.js";
 import {
@@ -1807,6 +1808,9 @@ export async function startGatewayServer(
     close: async (optsLocal) => {
       try {
         markClosePreludeStarted();
+        // Fire session_suspend for each active session so plugins can snapshot state
+        // BEFORE we tear down sidecars/infrastructure.
+        await runGlobalSessionSuspendOnShutdown({ cfg: cfgAtStart });
         await stopRegisteredGatewayLifetimeSidecars();
         await stopRegisteredPostReadySidecars();
         // Run gateway_stop plugin hook before shutdown

@@ -73,7 +73,9 @@ import type {
   PluginHookRegistration,
   PluginHookSessionContext,
   PluginHookSessionEndEvent,
+  PluginHookSessionResumeEvent,
   PluginHookSessionStartEvent,
+  PluginHookSessionSuspendEvent,
   PluginHookSubagentContext,
   PluginHookSubagentDeliveryTargetEvent,
   PluginHookSubagentDeliveryTargetResult,
@@ -146,6 +148,8 @@ export type {
   PluginHookSessionContext,
   PluginHookSessionStartEvent,
   PluginHookSessionEndEvent,
+  PluginHookSessionSuspendEvent,
+  PluginHookSessionResumeEvent,
   PluginHookSubagentContext,
   PluginHookSubagentDeliveryTargetEvent,
   PluginHookSubagentDeliveryTargetResult,
@@ -1456,6 +1460,28 @@ export function createHookRunner(
   }
 
   /**
+   * Run session_suspend hook.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionSuspend(
+    event: PluginHookSessionSuspendEvent,
+    ctx: PluginHookSessionContext,
+  ): Promise<void> {
+    return runVoidHook("session_suspend", event, ctx);
+  }
+
+  /**
+   * Run session_resume hook.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionResume(
+    event: PluginHookSessionResumeEvent,
+    ctx: PluginHookSessionContext,
+  ): Promise<void> {
+    return runVoidHook("session_resume", event, ctx);
+  }
+
+  /**
    * @deprecated Core prepares thread-bound subagent bindings through channel
    * session-binding adapters before subagent_spawned fires. This remains only
    * for older plugins that call the hook runner directly.
@@ -1658,6 +1684,8 @@ export function createHookRunner(
     // Session hooks
     runSessionStart,
     runSessionEnd,
+    runSessionSuspend,
+    runSessionResume,
     runSubagentSpawning,
     runSubagentDeliveryTarget,
     runSubagentSpawned,
