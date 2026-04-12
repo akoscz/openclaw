@@ -140,7 +140,7 @@ export function registerStatusHealthSessionsCommands(program: Command) {
       () =>
         `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/status", "docs.openclaw.ai/cli/status")}\n`,
     )
-    .action(async (opts) => {
+    .action(async (opts: Record<string, unknown>) => {
       await runWithVerboseAndTimeout(opts, async ({ verbose, timeoutMs }) => {
         const { statusCommand } = await import("../../commands/status.js");
         await statusCommand(
@@ -169,7 +169,7 @@ export function registerStatusHealthSessionsCommands(program: Command) {
       () =>
         `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/health", "docs.openclaw.ai/cli/health")}\n`,
     )
-    .action(async (opts) => {
+    .action(async (opts: Record<string, unknown>) => {
       await runWithVerboseAndTimeout(opts, async ({ verbose, timeoutMs }) => {
         const { healthCommand } = await import("../../commands/health.js");
         await healthCommand(
@@ -760,6 +760,45 @@ export function registerStatusHealthSessionsCommands(program: Command) {
           },
           defaultRuntime,
         );
+      });
+    });
+
+  // Scrub subcommand
+  sessionsCmd
+    .command("scrub")
+    .description("Scrub secrets from session transcripts")
+    .option("--dry-run", "Report what would be scrubbed without modifying files", false)
+    .option("--verbose", "Show per-file details", false)
+    .option("--no-backup", "Skip creating .bak backups")
+    .option("--concurrency <n>", "Number of files to process in parallel (default: 20)", parseInt)
+    .addHelpText(
+      "after",
+      () =>
+        `\n${theme.heading("Examples:")}\n${formatHelpExamples([
+          ["openclaw sessions scrub --dry-run", "Preview what would be scrubbed."],
+          ["openclaw sessions scrub", "Scrub secrets from all session files."],
+          ["openclaw sessions scrub --verbose", "Show details for each file processed."],
+          ["openclaw sessions scrub --no-backup", "Skip backup creation."],
+        ])}\n\n${theme.muted(
+          "Scrubs API keys, tokens, passwords and other secrets from session transcript files (.jsonl). " +
+            "Creates .bak backups by default. Complements runtime redaction (read-time protection) with at-rest scrubbing.",
+        )}`,
+    )
+    .addHelpText(
+      "after",
+      () =>
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/sessions-scrub", "docs.openclaw.ai/cli/sessions-scrub")}\n`,
+    )
+    .action(async (opts: Record<string, unknown>) => {
+      setVerbose(Boolean(opts.verbose));
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const { sessionsScrubCommand } = await import("../../commands/sessions-scrub.js");
+        await sessionsScrubCommand(defaultRuntime, {
+          dryRun: Boolean(opts.dryRun),
+          verbose: Boolean(opts.verbose),
+          noBackup: !opts.backup,
+          concurrency: opts.concurrency as number | undefined,
+        });
       });
     });
 }
