@@ -1,6 +1,8 @@
 import { createAmbientNodeProxyAgent, hasAmbientNodeProxyConfigured } from "@openclaw/proxyline";
 import type { z } from "zod";
 import type { OpenClawConfig } from "../config/config.js";
+import { isEnvSecretProviderConfig } from "../config/types.secrets.js";
+import { hasEnvHttpProxyConfigured } from "../infra/net/proxy-env.js";
 import { resolveActiveManagedProxyTlsOptions } from "../infra/net/proxy/managed-proxy-undici.js";
 import { resolveDefaultSecretProviderAlias } from "../secrets/ref-contract.js";
 import { runPassiveAccountLifecycle } from "./channel-lifecycle.core.js";
@@ -203,7 +205,7 @@ export function canResolveEnvSecretRefInReadOnlyPath(params: {
   if (!providerConfig) {
     return params.provider === resolveDefaultSecretProviderAlias(params.cfg ?? {}, "env");
   }
-  if (providerConfig.source !== "env") {
+  if (!isEnvSecretProviderConfig(providerConfig)) {
     return false;
   }
   const allowlist = providerConfig.allowlist;
