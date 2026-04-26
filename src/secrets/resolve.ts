@@ -2,12 +2,15 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import type {
-  ExecSecretProviderConfig,
-  FileSecretProviderConfig,
-  SecretProviderConfig,
-  SecretRef,
-  SecretRefSource,
+import {
+  isEnvSecretProviderConfig,
+  isExecSecretProviderConfig,
+  isFileSecretProviderConfig,
+  type ExecSecretProviderConfig,
+  type FileSecretProviderConfig,
+  type SecretProviderConfig,
+  type SecretRef,
+  type SecretRefSource,
 } from "../config/types.secrets.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { FsSafeError, readSecureFile } from "../infra/fs-safe.js";
@@ -763,6 +766,33 @@ async function resolveExecRefs(params: {
   return resolved;
 }
 
+async function resolvePluginSecretRefs(params: {
+  refs: SecretRef[];
+  source: SecretRefSource;
+  providerName: string;
+  providerConfig: SecretProviderConfig;
+  env: NodeJS.ProcessEnv;
+}): Promise<Map<string, unknown>> {
+  const sourceId = String((params.providerConfig as { source?: unknown }).source);
+  const { resolveBundledSecretProviderForSource } =
+    await import("../plugins/secret-provider-resolver.js");
+  const entry = await resolveBundledSecretProviderForSource(sourceId);
+  if (!entry) {
+    throw providerResolutionError({
+      source: params.source,
+      provider: params.providerName,
+      message: `Unknown secret provider source "${sourceId}". Install a plugin that provides it (for example a bundled extension or a third-party openclaw-secrets-${sourceId} package).`,
+    });
+  }
+  entry.validateConfig?.(params.providerConfig);
+  return await entry.resolve({
+    refs: params.refs,
+    providerName: params.providerName,
+    providerConfig: params.providerConfig,
+    env: params.env,
+  });
+}
+
 async function resolveProviderRefs(params: {
   refs: SecretRef[];
   source: SecretRefSource;
@@ -772,7 +802,7 @@ async function resolveProviderRefs(params: {
   limits: ResolutionLimits;
 }): Promise<ProviderResolutionOutput> {
   try {
-    if (params.providerConfig.source === "env") {
+    if (isEnvSecretProviderConfig(params.providerConfig)) {
       return await resolveEnvRefs({
         refs: params.refs,
         providerName: params.providerName,
@@ -780,7 +810,7 @@ async function resolveProviderRefs(params: {
         env: params.options.env ?? process.env,
       });
     }
-    if (params.providerConfig.source === "file") {
+    if (isFileSecretProviderConfig(params.providerConfig)) {
       return await resolveFileRefs({
         refs: params.refs,
         providerName: params.providerName,
@@ -788,7 +818,7 @@ async function resolveProviderRefs(params: {
         cache: params.options.cache,
       });
     }
-    if (params.providerConfig.source === "exec") {
+    if (isExecSecretProviderConfig(params.providerConfig)) {
       return await resolveExecRefs({
         refs: params.refs,
         providerName: params.providerName,
@@ -797,10 +827,12 @@ async function resolveProviderRefs(params: {
         limits: params.limits,
       });
     }
-    throw providerResolutionError({
+    return await resolvePluginSecretRefs({
+      refs: params.refs,
       source: params.source,
-      provider: params.providerName,
-      message: `Unsupported secret provider source "${String((params.providerConfig as { source?: unknown }).source)}".`,
+      providerName: params.providerName,
+      providerConfig: params.providerConfig,
+      env: params.options.env ?? process.env,
     });
   } catch (err) {
     return throwUnknownProviderResolutionError({
