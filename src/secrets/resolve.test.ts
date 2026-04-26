@@ -576,7 +576,9 @@ describe("plugin-owned secret provider dispatch", () => {
   it("dispatches a plugin-owned source through the public-artifact resolver", async () => {
     const resolveSpy = vi.fn(async () => new Map<string, unknown>([["MY_KEY", "the-value"]]));
     resolveBundledSecretProviderForSourceMock.mockImplementation(async (source: string) => {
-      if (source !== "fakecloud") return undefined;
+      if (source !== "fakecloud") {
+        return undefined;
+      }
       return {
         id: "fakecloud",
         pluginId: "secrets-fakecloud",
@@ -623,7 +625,9 @@ describe("plugin-owned secret provider dispatch", () => {
     try {
       const fakeResolve = vi.fn(async () => new Map<string, unknown>([["MY_KEY", "plugin-value"]]));
       resolveBundledSecretProviderForSourceMock.mockImplementation(async (source: string) => {
-        if (source !== "fakecloud") return undefined;
+        if (source !== "fakecloud") {
+          return undefined;
+        }
         return {
           id: "fakecloud",
           pluginId: "secrets-fakecloud",
