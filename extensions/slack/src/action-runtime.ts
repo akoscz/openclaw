@@ -12,12 +12,10 @@ import {
   listSlackPins,
   listSlackReactions,
   pinSlackMessage,
-  publishSlackHomeTab,
   reactSlackMessage,
   readSlackMessages,
   removeOwnSlackReactions,
   removeSlackReaction,
-  resetSlackHomeTab,
   sendSlackMessage,
   unpinSlackMessage,
 } from "./actions.js";
@@ -95,10 +93,12 @@ export const slackActionRuntime = {
   listSlackReactions: createLazySlackAction("listSlackReactions"),
   parseSlackBlocksInput,
   pinSlackMessage: createLazySlackAction("pinSlackMessage"),
+  publishSlackHomeTab: createLazySlackAction("publishSlackHomeTab"),
   reactSlackMessage: createLazySlackAction("reactSlackMessage"),
   readSlackMessages: createLazySlackAction("readSlackMessages"),
   removeOwnSlackReactions: createLazySlackAction("removeOwnSlackReactions"),
   removeSlackReaction: createLazySlackAction("removeSlackReaction"),
+  resetSlackHomeTab: createLazySlackAction("resetSlackHomeTab"),
   sendSlackMessage: createLazySlackAction("sendSlackMessage"),
   unpinSlackMessage: createLazySlackAction("unpinSlackMessage"),
 };
@@ -557,9 +557,13 @@ export async function handleSlackAction(
       throw new Error("blocks (array) is required for updateHomeTab.");
     }
     if (writeOpts) {
-      await publishSlackHomeTab(userId, blocks as Record<string, unknown>[], writeOpts);
+      await slackActionRuntime.publishSlackHomeTab(
+        userId,
+        blocks as Record<string, unknown>[],
+        writeOpts,
+      );
     } else {
-      await publishSlackHomeTab(userId, blocks as Record<string, unknown>[]);
+      await slackActionRuntime.publishSlackHomeTab(userId, blocks as Record<string, unknown>[]);
     }
     return jsonResult({ ok: true });
   }
@@ -569,7 +573,7 @@ export async function handleSlackAction(
       throw new Error("Slack Home Tab updates are disabled.");
     }
     const userId = readStringParam(params, "userId", { required: true });
-    resetSlackHomeTab(userId, writeOpts ?? {});
+    slackActionRuntime.resetSlackHomeTab(userId, writeOpts ?? {});
     return jsonResult({
       ok: true,
       message: "Custom Home Tab cleared; default will restore on next visit.",

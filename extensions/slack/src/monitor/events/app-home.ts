@@ -1,9 +1,25 @@
 import { execFile } from "node:child_process";
-import { resolveUserTimezone } from "../../../../../src/agents/date-time.js";
-import type { AgentConfig } from "../../../../../src/config/types.agents.js";
+import { OPENCLAW_VERSION as VERSION } from "openclaw/plugin-sdk/agent-harness-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
-import { VERSION } from "../../../../../src/version.js";
+
+type AgentConfig = {
+  id?: string;
+  model?: string | { primary?: string };
+};
+
+function resolveUserTimezone(configured?: string): string {
+  const trimmed = configured?.trim();
+  if (trimmed) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: trimmed }).format(new Date());
+      return trimmed;
+    } catch {
+      // ignore invalid timezone
+    }
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone?.trim() || "UTC";
+}
 import {
   clearPublishInFlight,
   hasCurrentHomeTab,
@@ -137,7 +153,7 @@ export function registerSlackAppHomeEvents(params: { ctx: SlackMonitorContext })
 
   // Handle the "Refresh" button click from the Home tab
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (ctx.app as any).action(
+  (ctx.app as any).action?.(
     "openclaw:home_tab_refresh",
     async (args: { ack: () => Promise<void>; body: Record<string, unknown> }) => {
       const { ack, body } = args;

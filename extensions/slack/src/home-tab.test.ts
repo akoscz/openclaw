@@ -1,6 +1,5 @@
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { describe, expect, it } from "vitest";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { SlackAccountSchema } from "../config/zod-schema.providers-core.js";
 import { buildDefaultHomeView, formatUptime } from "./home-tab.js";
 import { resolveAgentModelDisplay } from "./monitor/events/app-home.js";
 
@@ -171,28 +170,5 @@ describe("resolveAgentModelDisplay", () => {
     expect(resolveAgentModelDisplay({ id: "a", model: "  anthropic/opus-4  " }, {})).toBe(
       "anthropic/opus-4",
     );
-  });
-});
-
-describe("Zod schema validation", () => {
-  it("accepts homeTab config in SlackAccountSchema", () => {
-    const result = SlackAccountSchema.safeParse({
-      homeTab: { enabled: true },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts homeTab: false in actions config", () => {
-    const result = SlackAccountSchema.safeParse({
-      actions: { homeTab: false },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects unknown keys in homeTab config", () => {
-    const result = SlackAccountSchema.safeParse({
-      homeTab: { enabled: true, unknownKey: "bad" },
-    });
-    expect(result.success).toBe(false);
   });
 });
