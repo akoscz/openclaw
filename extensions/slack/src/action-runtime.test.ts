@@ -23,7 +23,6 @@ const resetSlackHomeTab = vi.fn((..._args: unknown[]) => undefined);
 const sendSlackMessage = vi.fn(async (..._args: unknown[]) => ({ channelId: "C123" }));
 const unpinSlackMessage = vi.fn(async (..._args: unknown[]) => ({}));
 
-
 describe("handleSlackAction", () => {
   function slackConfig(overrides?: Record<string, unknown>): OpenClawConfig {
     return {
@@ -1243,7 +1242,7 @@ describe("handleSlackAction", () => {
       { action: "updateHomeTab", userId: "U123", blocks },
       cfg,
     );
-    expect(publishSlackHomeTab).toHaveBeenCalledWith("U123", blocks);
+    expect(publishSlackHomeTab).toHaveBeenCalledWith("U123", blocks, expect.any(Object));
     expect(result.details).toEqual({ ok: true });
   });
 

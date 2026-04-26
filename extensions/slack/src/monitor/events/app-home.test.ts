@@ -20,6 +20,14 @@ vi.mock("../../../../../src/config/config.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../../../../../src/config/io.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../../src/config/io.js")>();
+  return {
+    ...actual,
+    loadConfig: () => config,
+  };
+});
+
 vi.mock("../../../../../src/auto-reply/reply.js", () => ({
   getReplyFromConfig: vi.fn(),
 }));
@@ -85,7 +93,13 @@ vi.mock("@slack/bolt", () => {
     event(name: string, handler: (args: unknown) => Promise<void>) {
       handlers.set(name, handler);
     }
+    action() {
+      /* no-op */
+    }
     command() {
+      /* no-op */
+    }
+    use() {
       /* no-op */
     }
     start = vi.fn().mockResolvedValue(undefined);
@@ -94,7 +108,16 @@ vi.mock("@slack/bolt", () => {
   class HTTPReceiver {
     requestListener = vi.fn();
   }
-  return { App, HTTPReceiver, default: { App, HTTPReceiver } };
+  class SocketModeReceiver {
+    start = vi.fn().mockResolvedValue(undefined);
+    stop = vi.fn().mockResolvedValue(undefined);
+  }
+  return {
+    App,
+    HTTPReceiver,
+    SocketModeReceiver,
+    default: { App, HTTPReceiver, SocketModeReceiver },
+  };
 });
 
 const { monitorSlackProvider } = await import("../provider.js");
@@ -142,13 +165,25 @@ describe("app_home_opened event", () => {
     if (overrideConfig) {
       config = overrideConfig;
     }
+    getSlackHandlers()?.clear();
     // Don't await — it runs forever until aborted
     void monitorSlackProvider({
       botToken: "xoxb-test",
       appToken: "xapp-test",
       abortSignal: controller.signal,
     });
-    await waitForEvent("app_home_opened");
+    const homeTabDisabled =
+      (overrideConfig?.channels as Record<string, Record<string, Record<string, unknown>>>)?.slack
+        ?.homeTab?.enabled === false;
+    if (homeTabDisabled) {
+      // Allow the provider to finish its synchronous registration phase, then
+      // confirm the handler was not registered.
+      for (let i = 0; i < 10; i++) {
+        await flush();
+      }
+    } else {
+      await waitForEvent("app_home_opened");
+    }
   }
 
   async function fireAppHomeOpened(
