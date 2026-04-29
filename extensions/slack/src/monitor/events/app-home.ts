@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { OPENCLAW_VERSION as VERSION } from "openclaw/plugin-sdk/agent-harness-runtime";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 
 type AgentConfig = {

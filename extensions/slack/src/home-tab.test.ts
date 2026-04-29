@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
 import { describe, expect, it } from "vitest";
 import { buildDefaultHomeView, formatUptime } from "./home-tab.js";
 import { resolveAgentModelDisplay } from "./monitor/events/app-home.js";
