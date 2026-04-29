@@ -25,6 +25,7 @@ vi.mock("../../../../../src/config/io.js", async (importOriginal) => {
   return {
     ...actual,
     loadConfig: () => config,
+    getRuntimeConfig: () => config,
   };
 });
 
