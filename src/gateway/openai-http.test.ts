@@ -1383,9 +1383,7 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
         expect(repeatedContent).toBe("hihi");
       }
 
-      {
-        agentCommand.mockClear();
-      }
+      agentCommand.mockClear();
 
       {
         agentCommand.mockReset();
