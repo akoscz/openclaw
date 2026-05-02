@@ -137,8 +137,10 @@ export function derivePersistedSessionLifecyclePatch(params: {
     session: params.entry ?? undefined,
     event: params.event,
   });
+  const status = snapshot.status === "archived" ? undefined : snapshot.status;
   return {
     ...snapshot,
+    status,
     updatedAt: typeof snapshot.updatedAt === "number" ? snapshot.updatedAt : undefined,
   };
 }

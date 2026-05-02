@@ -93,7 +93,6 @@ import {
   countMessagesInTranscriptFile,
   isValidArchivedFileName,
   readFirstUserMessageFromFile,
-  readLatestSessionUsageFromTranscript,
   readRecentSessionUsageFromTranscript,
   readSessionTitleFieldsFromTranscript,
   readSessionTitleFieldsFromTranscriptAsync,
@@ -2439,6 +2438,7 @@ export async function listSessionsFromStoreAsync(params: {
   const includeDerivedTitles = opts.includeDerivedTitles === true;
   const includeLastMessage = opts.includeLastMessage === true;
   const hasSpawnedByFilter = typeof opts.spawnedBy === "string" && opts.spawnedBy.length > 0;
+  const search = normalizeLowercaseStringOrEmpty(opts.search);
 
   const selection = selectSessionEntries({
     cfg,

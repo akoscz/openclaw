@@ -15,7 +15,7 @@ import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { uniqueStrings } from "../shared/string-normalization.js";
 
-type ArchiveFileReason = SessionArchiveReason;
+export type ArchiveFileReason = SessionArchiveReason;
 export type ArchivedSessionTranscript = {
   sourcePath: string;
   archivedPath: string;
