@@ -144,7 +144,7 @@ export function registerSlackAppHomeEvents(params: { ctx: SlackMonitorContext })
   function runCustomScript(userId: string | undefined, reason: string): void {
     execFile("python3", [homeScriptPath], { timeout: 30_000 }, (err, stdout) => {
       if (err) {
-        ctx.runtime.error?.(danger(`slack: home tab ${reason} script failed: ${String(err)}`));
+        ctx.runtime.error?.(danger(`slack: home tab ${reason} script failed: ${err.message}`));
       } else {
         logVerbose(`slack: home tab ${reason}${stdout ? ` — ${stdout.trim()}` : ""}`);
       }
