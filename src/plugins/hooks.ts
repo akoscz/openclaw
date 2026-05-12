@@ -67,7 +67,9 @@ import type {
   PluginHookRegistration,
   PluginHookSessionContext,
   PluginHookSessionEndEvent,
+  PluginHookSessionResumeEvent,
   PluginHookSessionStartEvent,
+  PluginHookSessionSuspendEvent,
   PluginHookSubagentContext,
   PluginHookSubagentDeliveryTargetEvent,
   PluginHookSubagentDeliveryTargetResult,
@@ -134,6 +136,8 @@ export type {
   PluginHookSessionContext,
   PluginHookSessionStartEvent,
   PluginHookSessionEndEvent,
+  PluginHookSessionSuspendEvent,
+  PluginHookSessionResumeEvent,
   PluginHookSubagentContext,
   PluginHookSubagentDeliveryTargetEvent,
   PluginHookSubagentDeliveryTargetResult,
@@ -1324,6 +1328,28 @@ export function createHookRunner(
   }
 
   /**
+   * Run session_suspend hook.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionSuspend(
+    event: PluginHookSessionSuspendEvent,
+    ctx: PluginHookSessionContext,
+  ): Promise<void> {
+    return runVoidHook("session_suspend", event, ctx);
+  }
+
+  /**
+   * Run session_resume hook.
+   * Runs in parallel (fire-and-forget).
+   */
+  async function runSessionResume(
+    event: PluginHookSessionResumeEvent,
+    ctx: PluginHookSessionContext,
+  ): Promise<void> {
+    return runVoidHook("session_resume", event, ctx);
+  }
+
+  /**
    * Run subagent_spawning hook.
    * Runs sequentially so channel plugins can deterministically provision session bindings.
    */
@@ -1509,6 +1535,8 @@ export function createHookRunner(
     // Session hooks
     runSessionStart,
     runSessionEnd,
+    runSessionSuspend,
+    runSessionResume,
     runSubagentSpawning,
     runSubagentDeliveryTarget,
     runSubagentSpawned,

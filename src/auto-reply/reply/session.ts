@@ -66,7 +66,12 @@ import {
   resolveLastToRaw,
 } from "./session-delivery.js";
 import { forkSessionFromParent, resolveParentForkDecision } from "./session-fork.js";
-import { buildSessionEndHookPayload, buildSessionStartHookPayload } from "./session-hooks.js";
+import {
+  buildSessionEndHookPayload,
+  buildSessionResumeHookPayload,
+  buildSessionStartHookPayload,
+  buildSessionSuspendHookPayload,
+} from "./session-hooks.js";
 import { clearSessionResetRuntimeState } from "./session-reset-cleanup.js";
 
 const log = createSubsystemLogger("session-init");
@@ -924,8 +929,42 @@ export async function initSessionState(params: {
         sessionKey,
         cfg,
         resumedFrom: previousSessionEntry?.sessionId,
+        prompt: rawBody || undefined,
       });
       void hookRunner.runSessionStart(payload.event, payload.context).catch(() => {});
+    }
+  } else if (hookRunner && !isNewSession && freshEntry && entry) {
+    // Session continuing after a gap — retroactively fire session_suspend, then session_resume.
+    // We don't proactively track suspend points; instead, when the next message arrives after
+    // a gap larger than the threshold, we infer the session was suspended for that gap.
+    const suspendThresholdMs = 30 * 60 * 1000;
+    const lastActiveAt = entry.updatedAt ?? 0;
+    const suspendedForMs = lastActiveAt > 0 ? now - lastActiveAt : 0;
+    if (suspendedForMs > suspendThresholdMs) {
+      if (hookRunner.hasHooks("session_suspend")) {
+        const suspendPayload = buildSessionSuspendHookPayload({
+          sessionId: entry.sessionId,
+          sessionKey,
+          cfg,
+          messageCount: 0,
+          durationMs: suspendedForMs,
+          reason: "idle",
+        });
+        void hookRunner
+          .runSessionSuspend(suspendPayload.event, suspendPayload.context)
+          .catch(() => {});
+      }
+      if (hookRunner.hasHooks("session_resume")) {
+        const resumePayload = buildSessionResumeHookPayload({
+          sessionId: entry.sessionId,
+          sessionKey,
+          cfg,
+          suspendedForMs,
+        });
+        void hookRunner
+          .runSessionResume(resumePayload.event, resumePayload.context)
+          .catch(() => {});
+      }
     }
   }
 
