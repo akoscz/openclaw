@@ -60,12 +60,16 @@ vi.mock("../config/io.js", () => ({
   writeConfigFile: vi.fn(),
 }));
 
-vi.mock("../config/paths.js", () => ({
-  get isNixMode() {
-    return configMocks.isNixMode.value;
-  },
-  resolveStateDir: vi.fn(() => "/tmp/openclaw-state"),
-}));
+vi.mock("../config/paths.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../config/paths.js")>();
+  return {
+    ...actual,
+    get isNixMode() {
+      return configMocks.isNixMode.value;
+    },
+    resolveStateDir: vi.fn(() => "/tmp/openclaw-state"),
+  };
+});
 
 vi.mock("../config/runtime-overrides.js", () => ({
   applyConfigOverrides: vi.fn((config: OpenClawConfig) => config),
