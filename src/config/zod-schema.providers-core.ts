@@ -1046,6 +1046,16 @@ export const SlackAccountSchema = z
         memberInfo: z.boolean().optional(),
         channelInfo: z.boolean().optional(),
         emojiList: z.boolean().optional(),
+        homeTab: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    homeTab: z
+      .object({
+        enabled: z.boolean().optional(),
+        showCommands: z.boolean().optional(),
+        customBlocks: z.array(z.unknown()).optional(),
+        customScript: z.string().optional(),
       })
       .strict()
       .optional(),

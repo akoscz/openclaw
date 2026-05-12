@@ -85,6 +85,8 @@ describe("production lint suppressions", () => {
       "extensions/discord/src/test-support/provider.test-support.ts|typescript/no-unnecessary-type-parameters|1",
       "extensions/feishu/src/bitable.ts|typescript/no-unnecessary-type-parameters|1",
       "extensions/matrix/src/onboarding.test-harness.ts|typescript/no-unnecessary-type-parameters|1",
+      "extensions/slack/src/actions.ts|@typescript-eslint/no-explicit-any|1",
+      "extensions/slack/src/monitor/events/app-home.ts|@typescript-eslint/no-explicit-any|2",
       "extensions/slack/src/monitor/provider-support.ts|typescript/no-unnecessary-type-parameters|1",
       "scripts/e2e/mcp-channels-harness.ts|unicorn/prefer-add-event-listener|1",
       "scripts/lib/extension-package-boundary.ts|typescript/no-unnecessary-type-parameters|1",

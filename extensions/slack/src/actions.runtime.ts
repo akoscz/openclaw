@@ -7,10 +7,12 @@ export {
   listSlackPins,
   listSlackReactions,
   pinSlackMessage,
+  publishSlackHomeTab,
   reactSlackMessage,
   readSlackMessages,
   removeOwnSlackReactions,
   removeSlackReaction,
+  resetSlackHomeTab,
   sendSlackMessage,
   unpinSlackMessage,
 } from "./actions.js";
