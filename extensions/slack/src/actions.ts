@@ -5,11 +5,8 @@ import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { resolveSlackAccount } from "./accounts.js";
 import { validateSlackBlocksArray } from "./blocks-input.js";
 import { createSlackWebClient, getSlackWriteClient } from "./client.js";
-<<<<<<< HEAD
 import { buildSlackEditTextPayload } from "./edit-text.js";
-=======
 import { clearHomeTabCustom, markHomeTabCustom } from "./home-tab-state.js";
->>>>>>> 4fee850cf1 (feat(slack): enhance Home tab with version caching, Phase 2 actions, docs)
 import { resolveSlackMedia } from "./monitor/media.js";
 import type { SlackMediaResult } from "./monitor/media.js";
 import { sendMessageSlack } from "./send.js";
