@@ -2,6 +2,7 @@
 // Translates OpenAI chat requests to OpenClaw agent runs and SSE/JSON responses.
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { readString } from "@openclaw/acp-core/meta";
 import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
 import { resolveIntegerOption } from "@openclaw/normalization-core/number-coercion";
 import {
@@ -166,6 +167,7 @@ function buildAgentCommandInput(params: {
   messageChannel: string;
   abortSignal?: AbortSignal;
   streamParams?: AgentStreamParams;
+  thinking?: string;
 }) {
   return {
     message: params.prompt.message,
@@ -181,6 +183,7 @@ function buildAgentCommandInput(params: {
     allowModelOverride: params.modelOverride !== undefined,
     abortSignal: params.abortSignal,
     streamParams: params.streamParams,
+    thinking: params.thinking,
   };
 }
 
@@ -979,6 +982,16 @@ export async function handleOpenAiHttpRequest(
         }
       : undefined;
 
+  // Extract thinking/reasoning level from request.
+  // Supports: reasoning_effort (OpenAI standard), thinking (custom), or X-Thinking-Level header.
+  const thinkingRaw =
+    readString(payload, ["reasoning_effort"]) ||
+    readString(payload, ["thinking"]) ||
+    (typeof req.headers["x-thinking-level"] === "string"
+      ? req.headers["x-thinking-level"]
+      : undefined);
+  const thinking = thinkingRaw ? thinkingRaw.trim().toLowerCase() || undefined : undefined;
+
   let agentId: string;
   let sessionKey: string;
   let messageChannel: string;
@@ -1077,6 +1090,7 @@ export async function handleOpenAiHttpRequest(
     messageChannel,
     abortSignal: abortController.signal,
     streamParams,
+    thinking,
   });
 
   if (!stream) {
@@ -1227,6 +1241,39 @@ export async function handleOpenAiHttpRequest(
       return;
     }
     if (closed) {
+      return;
+    }
+
+    if (evt.stream === "thinking") {
+      const delta = typeof evt.data?.delta === "string" ? evt.data.delta : "";
+      if (!delta) {
+        return;
+      }
+
+      if (!wroteRole) {
+        wroteRole = true;
+        writeSse(res, {
+          id: runId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [{ index: 0, delta: { role: "assistant" } }],
+        });
+      }
+
+      writeSse(res, {
+        id: runId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: delta },
+            finish_reason: null,
+          },
+        ],
+      });
       return;
     }
 
