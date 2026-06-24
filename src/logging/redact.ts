@@ -293,7 +293,7 @@ function normalizeMode(value?: string): RedactSensitiveMode {
   return value === "off" ? "off" : DEFAULT_REDACT_MODE;
 }
 
-function parsePattern(raw: RedactPattern): RegExp | null {
+export function parsePattern(raw: RedactPattern): RegExp | null {
   let pattern: RegExp | null = null;
   if (raw instanceof RegExp) {
     if (raw.flags.includes("g")) {
